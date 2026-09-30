@@ -1,4 +1,4 @@
-### This repo purely acts as a means to host a compiled version of @WhiteRedDragons fork of @ficool2 's SFM PBR Shader, as well my attempt at some documentation based on what I have been able to figure out so far *(also perhaps some AI assisted tweaks of my own.)* 
+### This repo started as a means to host a compiled version of @WhiteRedDragons fork of @ficool2 's SFM PBR Shader, however over time I couldn't resist vibe coding a bunch of extra features and so now it's more or less become my frankenstein shader, use at your own risk
 
 This version gets loaded over top of the existing workshop plugin. It doesn't replace or change it in any way (as long you don't copy it into the workshop folder of course) and it's easy to revert if needed.
 ## Fixes and new Features compared to the current workshop version
@@ -11,11 +11,12 @@ This version gets loaded over top of the existing workshop plugin. It doesn't re
 ## Fixes and new Features compared to @WhiteRedDragons fork
 #### Restored cubemap rendering and added a feature whereby envmaps (cubemaps) no longer glow in the dark and are now masked by SFM dynamic lights. Also metals are no longer rendered black when lighting is disabled. 
 #### This feature is controllable (off, blend, or overdrive) via a material parameter ($envdlightfactor). See parameters list below for more details.
-#### Fixed the old issue with alphatested materials becoming transparent when SSAO is also enabled on the material.
+#### Fixed the old issue with alphatested materials becoming transparent when SSAO is also enabled on the material. However currently you also need to define an $alphatestreference value in order to fully enable.
 #### rt_camera support which is affected by normal and roughness maps, and masked by metalness. It replaces envmap reflections so it should also work in diffuse/specular mode.
 #### Added an envmap translation offset, which allows animation of the envmap position in x,y,z in SFM to simulate movement, for example a car driving down a tunnel with the lights moving accross car.
 #### Car Paint shader with included paint speckle normal map.
-#### *These changes were written with the help of AI*
+#### Hair shading mode based on the Kajiya-Kay rendering model.
+#### *ATTENTION: These changes were all vibe coded*
 
 # Install
 ## *You MUST already be subscribed to the PBR Shader from the workshop and it must be working*
@@ -62,6 +63,10 @@ To use this feature, define the `$diffuse` and `$specular` parameters in your `.
 #### $Stretch - *Stretch wrinklemap*
 #### $BumpStretch - *Compression bumpmap*
 
+### --- Kajiya-Kay Hair shading ---
+#### $Hair, SHADER_PARAM_TYPE_BOOL, "0", "Enable Hair Mode")
+#### $HairGloss, SHADER_PARAM_TYPE_VEC3, "[1.0 1.0 1.0]", "Gloss level, Direct Angle Brightness, Grazing Angle Brightness")
+
 ### --- CAR PAINT & PEARLESCENCE ---
 #### $CarPaint, SHADER_PARAM_TYPE_BOOL, "0", "Enable Car Paint Mode")
 #### $CarPaintGlossFactor, SHADER_PARAM_TYPE_FLOAT, "1.0", "Glossiness of the clearcoat")
@@ -95,7 +100,7 @@ To use this feature, define the `$diffuse` and `$specular` parameters in your `.
 #### $NormalMapFactor - *Float, Normal Map Intensity (yay!)*
 
 ##### *What follows is more or less a code dump with a little bit of cleanup, haven't had time to go through all of it yet but figured I should at least make it available as a quick resource. Will update later*
-#### AlphaTestReference,		SHADER_PARAM_TYPE_FLOAT, "0"
+#### AlphaTestReference,		SHADER_PARAM_TYPE_FLOAT, "0" (required for clean alpha when using SSAO)
 #### BumpFrame					SHADER_PARAM_TYPE_INTEGER, "0" "Frame number for $bumpmap")
 #### UseEnvAmbient				SHADER_PARAM_TYPE_BOOL, "0" 
 #### "Use the cubemaps to compute ambient light."
