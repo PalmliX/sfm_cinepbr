@@ -752,11 +752,11 @@ SHADER_DRAW
 			pShaderAPI->SetPixelShaderConstant(76, cFlakeParam);
 			// --------------------------------
 
-			// Push Hair specific extended parameters to c77 (x = Gloss, y = Primary Brightness, z = Grazing Brightness)
-			float cHairData[4] = { 0.5f, 1.0f, 1.0f, 0.0f };
-			if (params[HairGloss]->IsDefined())
+			// Push Hair specific extended parameters to c77
+			float cHairData[4] = { 1.0f, 1.0f, 0.0f, 0.0f };
+			if (params[HairBrightness]->IsDefined())
 			{
-				params[HairGloss]->GetVecValue(cHairData, 3); // Read Vector3 from $hairgloss
+				params[HairBrightness]->GetVecValue(cHairData, 2);
 			}
 			pShaderAPI->SetPixelShaderConstant(77, cHairData);
 

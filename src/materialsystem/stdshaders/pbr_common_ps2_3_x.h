@@ -118,7 +118,8 @@ float3 calculateLight(float3 lightIn, float3 lightIntensity, float3 lightOut, fl
     float3 diffuseBRDF = f3Diffuse * kd;
 
     // Cook-Torrance specular microfacet BRDF
-    float3 specularBRDF = (F * D * G) / max(EPSILON, 4.0 * cosLightIn * lightDirectionAngle);
+    float3 specularBRDF = (F * D * G) / max(0.01f, 4.0 * cosLightIn * lightDirectionAngle);
+    specularBRDF = min(specularBRDF, 10.0f);
 #if LIGHTMAPPED && !FLASHLIGHT
     // Ambient light from static lights is already precomputed in the lightmap. Don't add it again
     float3 result = specularBRDF * lightIntensity * cosLightIn;

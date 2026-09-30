@@ -75,14 +75,14 @@ const float4 cCarPaintData : register(c73);
 #define g_f1FlakeScale (cCarPaintData.w)
 
 const float4 cCarPaintMode : register(c74);
-#define g_f1CarPaintMode  (cCarPaintMode.x)
+#define g_f1CarPaintMode (cCarPaintMode.x)
 #define g_f1CarPaintGloss (cCarPaintMode.y)
-#define g_f1HairMode      (cCarPaintMode.z) 
+#define g_f1HairMode (cCarPaintMode.z)
+#define g_f1HairGloss (cCarPaintMode.w)
 
 const float4 cHairData : register(c77);
-#define g_f1HairGloss             (cHairData.x)
-#define g_f1HairPrimaryBrightness (cHairData.y)
-#define g_f1HairGrazingBrightness (cHairData.z)
+#define g_f1HairDirectBrightness (cHairData.x)
+#define g_f1HairGrazingBrightness (cHairData.y)
 
 const float4 cFlakeParams : register(c76);
 #define g_f3FlakeParams (cFlakeParams.xyz)
@@ -174,48 +174,6 @@ float ApplyMicroShadow(float ao, float3 N, float3 L, float shadow)
 	return shadow * microShadow;
 }
 
-// --- KAJIYA-KAY HAIR LIGHTING (STRICT PIGMENT TINTING) ---
-float3 calculateHairLight(float3 f3LightDir, float3 f3LightColor, float3 f3ViewDir, float3 f3StrandDir, float3 f3BaseNormalWS, float3 f3DiffuseColor, float f1PrimaryGloss, float f1SecondaryGloss)
-{
-	float3 f3HalfDir = normalize(f3LightDir + f3ViewDir);
-
-	// Scheuermann Tangent Shift: Primary shifts toward root (-), Secondary shifts toward tip (+)
-	float3 t1 = normalize(f3StrandDir + (f3BaseNormalWS * -0.1f));
-	float3 t2 = normalize(f3StrandDir + (f3BaseNormalWS * 0.15f));
-
-	// 1. Primary Highlight
-	float f1TdotH1 = dot(t1, f3HalfDir);
-	float f1SinTH1 = sqrt(max(0.0f, 1.0f - f1TdotH1 * f1TdotH1));
-	float f1DirAtten1 = smoothstep(-1.0f, 0.0f, dot(t1, f3HalfDir));
-	float f1Spec1 = pow(max(0.0f, f1SinTH1), f1PrimaryGloss) * f1DirAtten1;
-
-	// 2. Secondary Highlight
-	float f1TdotH2 = dot(t2, f3HalfDir);
-	float f1SinTH2 = sqrt(max(0.0f, 1.0f - f1TdotH2 * f1TdotH2));
-	float f1DirAtten2 = smoothstep(-1.0f, 0.0f, dot(t1, f3HalfDir));
-	float f1Spec2 = pow(max(0.0f, f1SinTH2), f1SecondaryGloss) * f1DirAtten2;
-
-	// 3. Wrap Diffuse
-	float f1Wrap = 0.5f;
-	float f1WrapDiffuse = max(0.0f, (dot(f3BaseNormalWS, f3LightDir) + f1Wrap) / (1.0f + f1Wrap));
-	float3 f3FinalDiffuse = f3DiffuseColor * f3LightColor * f1WrapDiffuse;
-
-	// --- STRICT PIGMENT BINDING (NO PURE WHITE) ---
-	// Instead of lerping with white (1.0), we lift the dark values of the diffuse color 
-	// while preserving its exact hue, ensuring the highlight is 100% colored by the hair.
-	float3 f3PigmentTint = max(f3DiffuseColor, dot(f3DiffuseColor, float3(0.299f, 0.587f, 0.114f)));
-
-	// Apply smooth non-linear curves to the brightness dials
-	float f1PrimaryCurve = g_f1HairPrimaryBrightness * g_f1HairPrimaryBrightness;
-	float f1SecondaryCurve = g_f1HairGrazingBrightness;
-
-	// The primary highlight is now completely driven by the hair's actual texture color
-	float3 f3FinalPrimary = f1Spec1 * f3LightColor * f3PigmentTint * f1PrimaryCurve * 1.5f;
-	float3 f3FinalSecondary = f1Spec2 * f3DiffuseColor * f3LightColor * f1SecondaryCurve;
-
-	return f3FinalDiffuse + f3FinalPrimary + f3FinalSecondary;
-}
-
 float4 main(PS_INPUT i) : COLOR
 {
 	#if USEENVAMBIENT
@@ -233,7 +191,6 @@ float4 main(PS_INPUT i) : COLOR
 	float3x3 xmTBN = float3x3(i.Tangent, i.Bitangent, i.Normal);
 	float3 f3NormalVertex = i.Normal;
 	float3 f3ViewDir = g_f3CameraPos - f3WorldPos;
-	float3 f3HairStrandWS = i.Bitangent;
 
 	#if PARALLAXOCCLUSION
 		float3 f3ViewDirTS = worldToRelative(f3ViewDir, i.Tangent, i.Bitangent, f3NormalVertex);
@@ -429,21 +386,65 @@ float4 main(PS_INPUT i) : COLOR
 				// --- HAIR MODE OVERRIDES ---
 				if (g_f1HairMode > 0.5f)
 				{
-					// 1. Wetness Darkening & EnvMap Overrides
+					// 1. Wetness Darkening & Roughness overrides
 					f3DiffuseColor *= lerp(1.0f, 0.4f, g_f1HairGloss);
-					flEnvmapMask = lerp(0.01f, 0.08f, g_f1HairGloss);
+
+					// Raise the minimum roughness from 0.15 to 0.35 to prevent GGX fireflies
+					f1Roughness = lerp(0.7f, 0.35f, g_f1HairGloss);
+					f1SecondaryRoughness = min(0.99f, f1Roughness + 0.25f);
+
 					f1AmbientOcclusion = 1.0f; // Rely purely on SSAO for microshadows
+					flEnvmapMask = lerp(0.01f, 0.08f, g_f1HairGloss); // Faint wet reflection
 
-					// 2. Derive Perturbed Strand Direction using the Normal Map X-channel
-					float f1StrandJitter = f3NormalTS.x;
-					float f1JitterStrength = lerp(0.15f, 0.02f, g_f1HairGloss);
-					f3HairStrandWS = normalize(i.Bitangent + (i.Tangent * f1StrandJitter * f1JitterStrength));
+					// 2. Lobe 1 (Primary Surface Highlight)
+					// Dynamically drop base specular intensity to prevent GGX highlight blowouts
+					float f1SpecDim = lerp(0.06f, 0.01f, g_f1HairGloss);
+					f3Lobe1Specular = float3(f1SpecDim, f1SpecDim, f1SpecDim);
+					f3Lobe1Diffuse = f3DiffuseColor;
 
-					// 3. Nullify GGX Variables (Direct light is handled by Kajiya-Kay later)
-					f3Lobe1Specular = float3(0.0f, 0.0f, 0.0f);
-					f3Lobe2Specular = float3(0.0f, 0.0f, 0.0f);
-					f3Lobe2Diffuse = float3(0.0f, 0.0f, 0.0f);
+					float3 f3BaseNormalWS = f3NormalWS;
+
+					// As hair gets wetter, it clumps. We reduce the chaotic normal map shift (f3NormalTS.y) 
+					// to prevent microscopic pixels from catching the light at random angles (fireflies).
+					float f1StrandChaos = lerp(0.1f, 0.01f, g_f1HairGloss);
+
+					// Shift the primary normal slightly UP the hair strand
+					float shift1 = -0.1f + (f3NormalTS.y * f1StrandChaos);
+					f3NormalWS = normalize(f3BaseNormalWS + i.Bitangent * shift1);
+
+					// Soften primary highlight on the frizzy, semi-transparent edges of the hair cards
+					f3Lobe1Specular *= f4BaseTexture.a;
+
+					// 3. Lobe 2 (Internal Scattered Highlight)
+					f3Lobe2Diffuse = float3(0.0f, 0.0f, 0.0f); // Prevent double diffuse addition
+					float3 scatteredTint = f3DiffuseColor * 1.5f;
+					f3Lobe2Specular = lerp(scatteredTint, float3(0.0f, 0.0f, 0.0f), g_f1HairGloss);
+
+					// Soften secondary highlight on the card edges (squared for a tighter mask)
+					f3Lobe2Specular *= (f4BaseTexture.a * f4BaseTexture.a);
+
+					// Shift Lobe 2 DOWN the hair strand, strictly from the unshifted base normal
+					float shift2 = 0.15f + (f3NormalTS.y * f1StrandChaos);
+					f3FlakeNormalWS = normalize(f3BaseNormalWS + i.Bitangent * shift2);
+
+					// Calculate how directly the camera is looking at the surface
+					float f1ViewAngle = saturate(dot(f3BaseNormalWS, normalize(f3ViewDir)));
+
+					// Linear falloff for accurate, responsive VMT control
+					float f1DynamicBrightness = lerp(g_f1HairGrazingBrightness, g_f1HairDirectBrightness, f1ViewAngle);
+
+					// Apply dynamic brightness dial to the hair lobes
+					f3Lobe1Specular *= f1DynamicBrightness;
+					f3Lobe2Specular *= f1DynamicBrightness;
+
+					// FINAL SPECULAR CLAMP:
+					float f1EdgeFactor = (1.0f - f1ViewAngle);
+					f1TotalSpecularFade = lerp(1.0f, g_f1HairGrazingBrightness, f1EdgeFactor * f1EdgeFactor);
+
+					// Safety floor to prevent absolute blackouts
+					f1DynamicBrightness = max(f1DynamicBrightness, 0.05f);
 				}
+				// --------------------------------------
 
 				#if EMISSIVE
 					float3 f3Emission = tex2D(Sampler_EmissionTexture, f2TexCoord).xyz * g_f1EmissiveFactor;
@@ -497,7 +498,7 @@ float4 main(PS_INPUT i) : COLOR
 					float4 f4Lobe2ReflectUV = float4(f3Lobe2Reflect, f1SecondaryRoughness * g_f1EnvMapMips);
 					float3 f3Lobe2EnvMap = ENV_MAP_SCALE * texCUBElod(Sampler_Envmap, f4Lobe2ReflectUV).rgb;
 
-					if (g_f1CarPaintMode > 0.5f) {
+					if (g_f1CarPaintMode > 0.5f || g_f1HairMode > 0.5f) {
 						// Apply your contrast settings to the physical flakes
 						float flakeMask = smoothstep(g_f3FlakeParams.x, g_f3FlakeParams.y, rawFlakeMask);
 
@@ -558,37 +559,28 @@ float4 main(PS_INPUT i) : COLOR
 						float f1MicroShadow = ApplyMicroShadow(f1AmbientOcclusion, f3NormalWS, f3LightDir, 1.0f);
 						f3LightColor *= lerp(1.0f, f1MicroShadow, g_f1MicroShadowFactor);
 
-						if (g_f1HairMode > 0.5f)
-						{
-							// Execute Kajiya-Kay Anisotropic Lighting
-							float f1PrimaryGloss = lerp(20.0f, 80.0f, g_f1HairGloss);
-							float f1SecondaryGloss = lerp(5.0f, 20.0f, g_f1HairGloss);
+						float3 f3DirectAndSpecular = calculateLight(f3LightDir, f3LightColor, f3ViewDir,
+							f3NormalWS, f3Lobe1Specular, f1Roughness, f1NdotV, f3Lobe1Diffuse, Sampler_Lightwarp);
 
-							float3 f3HairLight = calculateHairLight(f3LightDir, f3LightColor, f3ViewDir, f3HairStrandWS, f3NormalWS, f3DiffuseColor, f1PrimaryGloss, f1SecondaryGloss);
+						// Apply the fade to the primary lobe's direct lighting
+						f3DirectAndSpecular *= f1TotalSpecularFade;
 
-							// Soften highlights on the anti-aliased geometry edges
-							f3DirectLighting += (f3HairLight * f4BaseTexture.a);
-						}
-						else
-						{
-							// Execute Standard GGX Lighting for all other materials
-							float3 f3DirectAndSpecular = calculateLight(f3LightDir, f3LightColor, f3ViewDir,
-								f3NormalWS, f3Lobe1Specular, f1Roughness, f1NdotV, f3Lobe1Diffuse, Sampler_Lightwarp);
+						#if DUALLOBE
+						float3 f3SecondaryDirectAndSpecular = calculateLight(f3LightDir, f3LightColor, f3ViewDir,
+							f3FlakeNormalWS, f3Lobe2Specular, f1SecondaryRoughness, f1NdotV, f3Lobe2Diffuse, Sampler_Lightwarp);
 
-							#if DUALLOBE
-							float3 f3SecondaryDirectAndSpecular = calculateLight(f3LightDir, f3LightColor, f3ViewDir,
-								f3FlakeNormalWS, f3Lobe2Specular, f1SecondaryRoughness, f1NdotV, f3Lobe2Diffuse, Sampler_Lightwarp);
+						// Apply the fade to the secondary lobe's direct lighting
+						f3SecondaryDirectAndSpecular *= f1TotalSpecularFade;
 
-							if (g_f1CarPaintMode > 0.5f) {
-								f3DirectLighting += f3DirectAndSpecular + f3SecondaryDirectAndSpecular;
-						}
-							else {
-								f3DirectLighting += lerp(f3DirectAndSpecular, f3SecondaryDirectAndSpecular, g_f1DualLobe_LerpFactor);
-							}
-							#else
-							f3DirectLighting += f3DirectAndSpecular;
-							#endif
+						if (g_f1CarPaintMode > 0.5f || g_f1HairMode > 0.5f) {
+							f3DirectLighting += f3DirectAndSpecular + f3SecondaryDirectAndSpecular;
 					}
+						else {
+							f3DirectLighting += lerp(f3DirectAndSpecular, f3SecondaryDirectAndSpecular, g_f1DualLobe_LerpFactor);
+						}
+						#else
+						f3DirectLighting += f3DirectAndSpecular;
+						#endif
 
 						#if SUBSURFACESCATTERING
 						float3 f3SSSContribution = ComputeSubsurfaceScattering(f3NormalWS, f3LightDir, f3ViewDir,
@@ -642,35 +634,26 @@ float4 main(PS_INPUT i) : COLOR
 					float f1MicroShadow = ApplyMicroShadow(f1AmbientOcclusion, f3NormalWS, flashLightIn, 1.0f);
 					flashLightIntensity *= lerp(1.0f, f1MicroShadow, g_f1MicroShadowFactor);
 
-					if (g_f1HairMode > 0.5f)
-					{
-						// Execute Kajiya-Kay Anisotropic Lighting for Flashlight
-						float f1PrimaryGloss = lerp(20.0f, 80.0f, g_f1HairGloss);
-						float f1SecondaryGloss = lerp(5.0f, 20.0f, g_f1HairGloss);
+					float3 f3DirectAndSpecular = max(0, calculateLight(flashLightIn, flashLightIntensity, f3ViewDir,
+						f3NormalWS, f3Lobe1Specular, f1Roughness, f1NdotV, f3Lobe1Diffuse, Sampler_Lightwarp));
 
-						float3 f3HairLight = max(0, calculateHairLight(flashLightIn, flashLightIntensity, f3ViewDir, f3HairStrandWS, f3NormalWS, f3DiffuseColor, f1PrimaryGloss, f1SecondaryGloss));
-						f3DirectLighting += (f3HairLight * f4BaseTexture.a);
+					f3DirectAndSpecular *= f1TotalSpecularFade;
+
+					#if DUALLOBE
+					float3 f3SecondaryDirectAndSpecular = max(0, calculateLight(flashLightIn, flashLightIntensity, f3ViewDir,
+						f3FlakeNormalWS, f3Lobe2Specular, f1SecondaryRoughness, f1NdotV, f3Lobe2Diffuse, Sampler_Lightwarp));
+
+					f3SecondaryDirectAndSpecular *= f1TotalSpecularFade;
+
+					if (g_f1CarPaintMode > 0.5f || g_f1HairMode > 0.5f) {
+						f3DirectLighting += f3DirectAndSpecular + f3SecondaryDirectAndSpecular;
 					}
-					else
-					{
-						// Execute Standard GGX Lighting for Flashlight
-						float3 f3DirectAndSpecular = max(0, calculateLight(flashLightIn, flashLightIntensity, f3ViewDir,
-							f3NormalWS, f3Lobe1Specular, f1Roughness, f1NdotV, f3Lobe1Diffuse, Sampler_Lightwarp));
-
-						#if DUALLOBE
-						float3 f3SecondaryDirectAndSpecular = max(0, calculateLight(flashLightIn, flashLightIntensity, f3ViewDir,
-							f3FlakeNormalWS, f3Lobe2Specular, f1SecondaryRoughness, f1NdotV, f3Lobe2Diffuse, Sampler_Lightwarp));
-
-						if (g_f1CarPaintMode > 0.5f) {
-							f3DirectLighting += f3DirectAndSpecular + f3SecondaryDirectAndSpecular;
-						}
-						else {
-							f3DirectLighting += lerp(f3DirectAndSpecular, f3SecondaryDirectAndSpecular, g_f1DualLobe_LerpFactor);
-						}
-						#else
+					else {
+						f3DirectLighting += lerp(f3DirectAndSpecular, f3SecondaryDirectAndSpecular, g_f1DualLobe_LerpFactor);
+					}
+					#else
 						f3DirectLighting += f3DirectAndSpecular;
-						#endif
-					}
+					#endif
 
 					#if SUBSURFACESCATTERING
 						float3 f3SSSContribution = ComputeSubsurfaceScattering(f3NormalWS, flashLightIn, f3ViewDir,
