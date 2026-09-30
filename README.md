@@ -1,6 +1,5 @@
 ### This repo started as a means to host a compiled version of @WhiteRedDragons fork of @ficool2 's SFM PBR Shader, however over time I couldn't resist vibe coding a bunch of extra features and so now it's more or less become my frankenstein shader, use at your own risk
 
-This version gets loaded over top of the existing workshop plugin. It doesn't replace or change it in any way (as long you don't copy it into the workshop folder of course) and it's easy to revert if needed.
 ## Fixes and new Features compared to the current workshop version
 #### SSS *(Sub-Surface Scattering)*
 #### Working POM *(Parallax Occlusion Mapping)*
@@ -19,10 +18,9 @@ This version gets loaded over top of the existing workshop plugin. It doesn't re
 #### *ATTENTION: These changes were all vibe coded*
 
 # Install
-## *You MUST already be subscribed to the PBR Shader from the workshop and it must be working*
-#### 1) Download the latest SFM-PBR-shader_modifiedthexapbr.zip from the releases page and extract it into your SFM usermod folder so you have usermod/addons and usermod/shaders when finished.
-#### *Alternatively, you can create a new mod folder and make sure it's loaded ABOVE the workshop folder in usermod/gameinfo.txt* 
-#### 2) Run SFM, it's that easy! Try one of the new shader features/parameters in your vmt file to see if it's working. If you want to revert back to the workshop version simply rename, delete, or move the addons and shaders folders that you extracted.
+## *You MUST be subscribed to Ficool2's Shader Loader (https://steamcommunity.com/workshop/filedetails/?id=3669466136) but NOT subscribed to the PBR shader.
+#### 1) Download the latest zip from the releases page and extract it into your SFM usermod folder so you have usermod/addons and usermod/shaders when finished.
+#### 2) Run SFM, it's that easy! Try one of the new shader features/parameters in your vmt file to see if it's working. If you want to revert back to the original workshop version simply rename, delete, or move the addons and shaders folders that you extracted before re-subscribing.
 
 # Metallic/Roughness vs Diffuse/Specular Workflow
 
