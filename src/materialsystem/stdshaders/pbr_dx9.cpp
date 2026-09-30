@@ -62,7 +62,7 @@ static ConVar pbr_microshadows_globalstrength("pbr_microshadows_globalstrength",
 //==========================================================================//
 // Shader Start
 //==========================================================================//
-BEGIN_VS_SHADER(PBR, "PBR shader")
+BEGIN_VS_SHADER(CinePBR, "CinePBR shader")
 
 // Setting up vmt parameters
 BEGIN_SHADER_PARAMS;
@@ -86,7 +86,7 @@ SHADER_PARAM(NormalMap_FlipG, SHADER_PARAM_TYPE_BOOL, "", "")
 SHADER_PARAM(NormalMap_FlipB, SHADER_PARAM_TYPE_BOOL, "", "")
 SHADER_PARAM(NormalMapFactor, SHADER_PARAM_TYPE_FLOAT, "", "")
 
-SHADER_PARAM(AlphaTestReference, SHADER_PARAM_TYPE_FLOAT, "0", "")
+SHADER_PARAM(AlphaTestReference, SHADER_PARAM_TYPE_FLOAT, "0.5", "")
 SHADER_PARAM(AllowAlphaToCoverage, SHADER_PARAM_TYPE_BOOL, "0", "Enable alpha-to-coverage") 
 SHADER_PARAM(EnvMap, SHADER_PARAM_TYPE_ENVMAP, "", "Set the cubemap for this material.")
 SHADER_PARAM(EmissionTexture, SHADER_PARAM_TYPE_TEXTURE, "", "Emission texture")
@@ -232,6 +232,7 @@ SHADER_INIT_PARAMS()
 	InitFloatParam(DualLobe_RoughnessBias, params, -0.2f);
 	InitFloatParam(DualLobe_LerpFactor, params, 0.5f);
 	InitFloatParam(HairGloss, params, 0.5f);
+	InitFloatParam(AlphaTestReference, params, 0.5f);
 
 	if (!mat_pbr_parallaxmap.GetBool() || params[Compress]->IsDefined())
 	{
@@ -372,10 +373,7 @@ SHADER_DRAW
 						pShaderShadow->EnableAlphaToCoverage(false);
 						pShaderShadow->EnableAlphaTest(true);
 						const float f1AlphaTestReference = params[AlphaTestReference]->GetFloatValue();
-						if (f1AlphaTestReference > 0.0f)
-						{
-							pShaderShadow->AlphaFunc(SHADER_ALPHAFUNC_GEQUAL, f1AlphaTestReference);
-						}
+						pShaderShadow->AlphaFunc(SHADER_ALPHAFUNC_GEQUAL, f1AlphaTestReference);
 					}
 				}
 				else
