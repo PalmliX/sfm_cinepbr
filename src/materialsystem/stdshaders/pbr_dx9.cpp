@@ -16,15 +16,11 @@
 #include "pbr_vs30.inc"
 #include "pbr_mrao_ps30.inc"
 #include "pbr_mrao_projtex_ps30.inc"
-#include "pbr_sg_ps30.inc"
-#include "pbr_sg_projtex_ps30.inc"
 
 //#define SFM_BLACKBOX_MODE
 
 // M/R and S/G
 const Sampler_t SAMPLER_BASECOLOR = SHADER_SAMPLER0;
-const Sampler_t SAMPLER_DIFFUSE = SHADER_SAMPLER0;
-const Sampler_t SAMPLER_SPECULAR = SHADER_SAMPLER1;
 const Sampler_t SAMPLER_MRAO = SHADER_SAMPLER1;
 
 const Sampler_t SAMPLER_NORMAL = SHADER_SAMPLER2;
@@ -71,11 +67,7 @@ BEGIN_SHADER_PARAMS;
 SHADER_PARAM(BaseColor, SHADER_PARAM_TYPE_TEXTURE, "", "")
 SHADER_PARAM(MRAOTexture, SHADER_PARAM_TYPE_TEXTURE, "", "")
 
-// Specular/Glossiness
-SHADER_PARAM(Diffuse, SHADER_PARAM_TYPE_TEXTURE, "", "")
-SHADER_PARAM(Specular, SHADER_PARAM_TYPE_TEXTURE, "", "")
-
-SHADER_PARAM(SpecularGlossiness, SHADER_PARAM_TYPE_BOOL, "", "(Internal Parameter)")
+SHADER_PARAM(MetalEnvMask, SHADER_PARAM_TYPE_BOOL, "1", "Restrict envmap to metallic areas")
 
 // Proper Terminology
 SHADER_PARAM(BumpMap, SHADER_PARAM_TYPE_TEXTURE, "", "")
@@ -140,8 +132,7 @@ SHADER_PARAM(PearlTransition, SHADER_PARAM_TYPE_FLOAT, "2.0", "How sharply the p
 SHADER_PARAM(PearlBlendAmount, SHADER_PARAM_TYPE_FLOAT, "0.0", "Opacity of the pearl effect (0.0 to 1.0)")
 
 SHADER_PARAM(Hair, SHADER_PARAM_TYPE_BOOL, "0", "Enable Hair Mode")
-SHADER_PARAM(HairGloss, SHADER_PARAM_TYPE_FLOAT, "0.5", "Hair wetness/gloss factor")
-SHADER_PARAM(HairBrightness, SHADER_PARAM_TYPE_VEC2, "[1.0 1.0]", "Hair brightness multipliers [Direct Grazing]")
+SHADER_PARAM(HairGloss, SHADER_PARAM_TYPE_VEC3, "[0.5 1.0 1.0]", "Hair Gloss, Direct Brightness, Grazing Brightness")
 
 END_SHADER_PARAMS;
 
@@ -152,21 +143,10 @@ SHADER_INIT_PARAMS()
 	{
 		params[BaseTexture]->SetStringValue(params[BaseColor]->GetStringValue());
 	}
-	else if (params[Diffuse]->IsDefined())
-	{
-		params[BaseTexture]->SetStringValue(params[Diffuse]->GetStringValue());
-		params[SpecularGlossiness]->SetIntValue(1);
-	}
 	else if (params[BaseTexture]->IsDefined())
 	{
 		params[BaseColor]->SetStringValue(params[BaseTexture]->GetStringValue());
 	}
-
-	if (params[Specular]->IsDefined())
-	{
-		params[SpecularGlossiness]->SetIntValue(1);
-	}
-
 	if (params[BumpMap]->IsDefined())
 	{
 		params[NormalMap]->SetStringValue(params[BumpMap]->GetStringValue());
@@ -179,9 +159,6 @@ SHADER_INIT_PARAMS()
 	{
 		params[BumpMap]->SetStringValue("dev/flat_normal");
 	}
-
-	if (!params[EnvMap]->IsDefined())
-		params[EnvMap]->SetStringValue("env_cubemap");
 
 	if (params[Compress]->IsDefined() || params[BumpCompress]->IsDefined() ||
 		params[Stretch]->IsDefined() || params[BumpStretch]->IsDefined())
@@ -196,6 +173,8 @@ SHADER_INIT_PARAMS()
 		if (!params[BumpStretch]->IsDefined())
 			params[BumpStretch]->SetStringValue(params[BumpMap]->GetStringValue());
 	}
+
+	InitIntParam(MetalEnvMask, params, 1);
 
 	InitFloatParam(EnvmapOffsetX, params, 0.0f);
 	InitFloatParam(EnvmapOffsetY, params, 0.0f);
@@ -231,7 +210,7 @@ SHADER_INIT_PARAMS()
 	InitVecParam(SSSColor, params, 1, 1, 1);
 	InitFloatParam(DualLobe_RoughnessBias, params, -0.2f);
 	InitFloatParam(DualLobe_LerpFactor, params, 0.5f);
-	InitFloatParam(HairGloss, params, 0.5f);
+	InitVecParam(HairGloss, params, 0.5f, 1.0f, 1.0f);
 	InitFloatParam(AlphaTestReference, params, 0.5f);
 
 	if (!mat_pbr_parallaxmap.GetBool() || params[Compress]->IsDefined())
@@ -243,13 +222,13 @@ SHADER_INIT_PARAMS()
 	InitVecParam(MRAOExponent, params, 1.0f, 1.0f, 1.0f);
 	InitFloatParam(MicroShadowBias, params, 0.0f);
 
-	if (!params[MRAOTexture]->IsDefined() && params[SpecularGlossiness]->GetIntValue() == 0)
+	if (!params[MRAOTexture]->IsDefined())
 	{
-		InitVecParam(MRAOBias, params, -1.0f, -0.2f, 0.0f, 0.0f);
-	}
-	else if (!params[Specular]->IsDefined() && params[SpecularGlossiness]->GetIntValue() != 0)
-	{
-		InitVecParam(MRAOBias, params, -1.0f, 0.0f, 0.0f, 0.0f);
+		// Fallback for TEXTURE_WHITE: 
+		// Red: 1.0 - 1.0 = 0.0 Metalness (Dielectric)
+		// Green: 1.0 - 0.2 = 0.8 Roughness (Matte default)
+		// Blue: 1.0 - 0.0 = 1.0 AO (No occlusion)
+		InitVecParam(MRAOBias, params, -1.0f, -0.2f, 0.0f);
 	}
 	else
 	{
@@ -266,9 +245,7 @@ SHADER_INIT
 {
 	LoadTexture(BaseTexture, TEXTUREFLAGS_SRGB);
 	LoadTexture(BaseColor, TEXTUREFLAGS_SRGB);
-	LoadTexture(Diffuse, TEXTUREFLAGS_SRGB);
 	LoadTexture(MRAOTexture, NULL);
-	LoadTexture(Specular, NULL);
 	LoadBumpMap(BumpMap);
 	LoadBumpMap(NormalMap);
 
@@ -327,11 +304,8 @@ SHADER_DRAW
 	bool bHasFlashlight = UsingFlashlight(params);
 	bool bIsAlphaTested = IS_FLAG_SET(MATERIAL_VAR_ALPHATEST) != 0;
 
-	bool bSpecularGlossiness = params[SpecularGlossiness]->GetIntValue() != 0;
-	bool bHasBaseColor = !bSpecularGlossiness && params[BaseColor]->IsTexture();
-	bool bHasMRAOTexture = !bSpecularGlossiness && params[MRAOTexture]->IsTexture();
-	bool bHasDiffuse = bSpecularGlossiness && params[Diffuse]->IsTexture();
-	bool bHasSpecular = bSpecularGlossiness && params[Specular]->IsTexture();
+	bool bHasBaseColor = params[BaseColor]->IsTexture();
+	bool bHasMRAOTexture = params[MRAOTexture]->IsTexture();
 	bool bHasNormalMap = params[NormalMap]->IsTexture();
 	bool bHasEmissionTexture = params[EmissionTexture]->IsTexture();
 
@@ -436,23 +410,13 @@ SHADER_DRAW
 				int nUserDataSize = 0;
 				pShaderShadow->VertexShaderVertexFormat(nFlags, nTexCoords, NULL, nUserDataSize);
 			}
-
-			if (bSpecularGlossiness)
-			{
-				pShaderShadow->EnableTexture(SAMPLER_DIFFUSE, true);
-				pShaderShadow->EnableSRGBRead(SAMPLER_DIFFUSE, true);
-				pShaderShadow->EnableTexture(SAMPLER_SPECULAR, true);
-				pShaderShadow->EnableSRGBRead(SAMPLER_SPECULAR, true);
-			}
-			else
-			{
 				pShaderShadow->EnableTexture(SAMPLER_BASECOLOR, true);
 				pShaderShadow->EnableSRGBRead(SAMPLER_BASECOLOR, true);
 				pShaderShadow->EnableTexture(SAMPLER_MRAO, true);
 				pShaderShadow->EnableSRGBRead(SAMPLER_MRAO, false);
-			}
-			pShaderShadow->EnableTexture(SAMPLER_NORMAL, true);
-			pShaderShadow->EnableSRGBRead(SAMPLER_NORMAL, false);
+
+				pShaderShadow->EnableTexture(SAMPLER_NORMAL, true);
+				pShaderShadow->EnableSRGBRead(SAMPLER_NORMAL, false);
 
 			if (bWrinkleMapping)
 			{
@@ -526,21 +490,6 @@ SHADER_DRAW
 
 			if (bHasFlashlight)
 			{
-				if (bSpecularGlossiness)
-				{
-					DECLARE_STATIC_PIXEL_SHADER(pbr_sg_projtex_ps30);
-					SET_STATIC_PIXEL_SHADER_COMBO(PLANARREFLECTION, params[PlanarReflection]->GetIntValue());
-					SET_STATIC_PIXEL_SHADER_COMBO(FLASHLIGHTDEPTHFILTERMODE, g_pHardwareConfig->GetShadowFilterMode());
-					SET_STATIC_PIXEL_SHADER_COMBO(PARALLAXOCCLUSION, bHasParallax);
-					SET_STATIC_PIXEL_SHADER_COMBO(WORLD_NORMAL, bWorldNormal);
-					SET_STATIC_PIXEL_SHADER_COMBO(WRINKLEMAP, bWrinkleMapping);
-					SET_STATIC_PIXEL_SHADER_COMBO(SUBSURFACESCATTERING, bThicknessTexture);
-					SET_STATIC_PIXEL_SHADER_COMBO(DUALLOBE, bHasDualLobe);
-					SET_STATIC_PIXEL_SHADER_COMBO(ALPHATEST, bIsAlphaTested);
-					SET_STATIC_PIXEL_SHADER(pbr_sg_projtex_ps30);
-				}
-				else
-				{
 					DECLARE_STATIC_PIXEL_SHADER(pbr_mrao_projtex_ps30);
 					SET_STATIC_PIXEL_SHADER_COMBO(PLANARREFLECTION, params[PlanarReflection]->GetIntValue());
 					SET_STATIC_PIXEL_SHADER_COMBO(FLASHLIGHTDEPTHFILTERMODE, g_pHardwareConfig->GetShadowFilterMode());
@@ -551,25 +500,9 @@ SHADER_DRAW
 					SET_STATIC_PIXEL_SHADER_COMBO(DUALLOBE, bHasDualLobe);
 					SET_STATIC_PIXEL_SHADER_COMBO(ALPHATEST, bIsAlphaTested);
 					SET_STATIC_PIXEL_SHADER(pbr_mrao_projtex_ps30);
-				}
 			}
 			else
 			{
-				if (bSpecularGlossiness)
-				{
-					DECLARE_STATIC_PIXEL_SHADER(pbr_sg_ps30);
-					SET_STATIC_PIXEL_SHADER_COMBO(PLANARREFLECTION, params[PlanarReflection]->GetIntValue());
-					SET_STATIC_PIXEL_SHADER_COMBO(EMISSIVE, bHasEmissionTexture);
-					SET_STATIC_PIXEL_SHADER_COMBO(PARALLAXOCCLUSION, bHasParallax);
-					SET_STATIC_PIXEL_SHADER_COMBO(WORLD_NORMAL, bWorldNormal);
-					SET_STATIC_PIXEL_SHADER_COMBO(WRINKLEMAP, bWrinkleMapping);
-					SET_STATIC_PIXEL_SHADER_COMBO(SUBSURFACESCATTERING, bThicknessTexture);
-					SET_STATIC_PIXEL_SHADER_COMBO(DUALLOBE, bHasDualLobe);
-					SET_STATIC_PIXEL_SHADER_COMBO(ALPHATEST, bIsAlphaTested);
-					SET_STATIC_PIXEL_SHADER(pbr_sg_ps30);
-				}
-				else
-				{
 					DECLARE_STATIC_PIXEL_SHADER(pbr_mrao_ps30);
 					SET_STATIC_PIXEL_SHADER_COMBO(PLANARREFLECTION, params[PlanarReflection]->GetIntValue());
 					SET_STATIC_PIXEL_SHADER_COMBO(EMISSIVE, bHasEmissionTexture);
@@ -580,7 +513,6 @@ SHADER_DRAW
 					SET_STATIC_PIXEL_SHADER_COMBO(DUALLOBE, bHasDualLobe);
 					SET_STATIC_PIXEL_SHADER_COMBO(ALPHATEST, bIsAlphaTested);
 					SET_STATIC_PIXEL_SHADER(pbr_mrao_ps30);
-				}
 			}
 
 			float flLScale = pShaderShadow->GetLightMapScaleFactor();
@@ -602,19 +534,6 @@ SHADER_DRAW
 		{
 			bool bLightingOnly = mat_fullbright.GetInt() == 2 && !IS_FLAG_SET(MATERIAL_VAR_NO_DEBUG_OVERRIDE);
 
-			if (bSpecularGlossiness)
-			{
-				if (!bLightingOnly && bHasDiffuse)
-				{
-					BindTexture(SAMPLER_DIFFUSE, Diffuse, Frame);
-				}
-				else
-				{
-					pShaderAPI->BindStandardTexture(SAMPLER_DIFFUSE, TEXTURE_GREY);
-				}
-			}
-			else
-			{
 				if (!bLightingOnly && bHasBaseColor)
 				{
 					BindTexture(SAMPLER_BASECOLOR, BaseColor, Frame);
@@ -623,7 +542,6 @@ SHADER_DRAW
 				{
 					pShaderAPI->BindStandardTexture(SAMPLER_BASECOLOR, TEXTURE_GREY);
 				}
-			}
 
 #ifndef SFM_BLACKBOX_MODE
 			if (mat_specular.GetBool() && bHasEnvMap)
@@ -650,19 +568,6 @@ SHADER_DRAW
 				pShaderAPI->BindStandardTexture(SAMPLER_NORMAL, TEXTURE_NORMALMAP_FLAT);
 			}
 
-			if (bSpecularGlossiness)
-			{
-				if (bHasSpecular)
-				{
-					BindTexture(SAMPLER_SPECULAR, Specular, 0);
-				}
-				else
-				{
-					pShaderAPI->BindStandardTexture(SAMPLER_SPECULAR, TEXTURE_GREY_ALPHA_ZERO);
-				}
-			}
-			else
-			{
 				if (bHasMRAOTexture)
 				{
 					BindTexture(SAMPLER_MRAO, MRAOTexture, 0);
@@ -671,7 +576,6 @@ SHADER_DRAW
 				{
 					pShaderAPI->BindStandardTexture(SAMPLER_MRAO, TEXTURE_WHITE);
 				}
-			}
 
 			if (bThicknessTexture)
 			{
@@ -738,10 +642,10 @@ SHADER_DRAW
 			pShaderAPI->SetPixelShaderConstant(73, cCarPaint);
 
 			float cCarPaintMode[4] = {
-				(float)params[CarPaint]->GetIntValue(),
-				clamp(params[CarPaintGlossFactor]->GetFloatValue(), 0.0f, 1.0f),
-				(float)params[Hair]->GetIntValue(),
-				clamp(params[HairGloss]->GetFloatValue(), 0.0f, 1.0f)
+			(float)params[CarPaint]->GetIntValue(),
+			clamp(params[CarPaintGlossFactor]->GetFloatValue(), 0.0f, 1.0f),
+			(float)params[Hair]->GetIntValue(),
+			clamp(params[HairGloss]->GetFloatValue(), 0.0f, 1.0f)
 			};
 			pShaderAPI->SetPixelShaderConstant(74, cCarPaintMode);
 
@@ -762,7 +666,8 @@ SHADER_DRAW
 			float cAlphaTestRef[4] = {
 				clamp(params[AlphaTestReference]->GetFloatValue(), 0.0f, 1.0f),
 				(params[AllowAlphaToCoverage]->IsDefined() && params[AllowAlphaToCoverage]->GetIntValue()) ? 1.0f : 0.0f,
-				0.0f, 0.0f
+				(float)params[MetalEnvMask]->GetIntValue(),
+				0.0f
 			};
 			pShaderAPI->SetPixelShaderConstant(75, cAlphaTestRef);
 			// ---------------------------
@@ -971,43 +876,20 @@ SHADER_DRAW
 
 			if (bHasFlashlight)
 			{
-				if (bSpecularGlossiness)
-				{
-					DECLARE_DYNAMIC_PIXEL_SHADER(pbr_sg_projtex_ps30);
-					SET_DYNAMIC_PIXEL_SHADER_COMBO(PIXELFOGTYPE, pShaderAPI->GetPixelFogCombo());
-					SET_DYNAMIC_PIXEL_SHADER_COMBO(FLASHLIGHTSHADOWS, bFlashlightShadows);
-					SET_DYNAMIC_PIXEL_SHADER_COMBO(UBERLIGHT, flashlightState.m_bUberlight);
-					SET_DYNAMIC_PIXEL_SHADER(pbr_sg_projtex_ps30);
-				}
-				else
-				{
 					DECLARE_DYNAMIC_PIXEL_SHADER(pbr_mrao_projtex_ps30);
 					SET_DYNAMIC_PIXEL_SHADER_COMBO(PIXELFOGTYPE, pShaderAPI->GetPixelFogCombo());
 					SET_DYNAMIC_PIXEL_SHADER_COMBO(FLASHLIGHTSHADOWS, bFlashlightShadows);
 					SET_DYNAMIC_PIXEL_SHADER_COMBO(UBERLIGHT, flashlightState.m_bUberlight);
 					SET_DYNAMIC_PIXEL_SHADER(pbr_mrao_projtex_ps30);
-				}
 			}
 			else
 			{
-				if (bSpecularGlossiness)
-				{
-					DECLARE_DYNAMIC_PIXEL_SHADER(pbr_sg_ps30);
-					SET_DYNAMIC_PIXEL_SHADER_COMBO(NUM_LIGHTS, lightState.m_nNumLights);
-					SET_DYNAMIC_PIXEL_SHADER_COMBO(WRITEWATERFOGTODESTALPHA, bWriteWaterFogToAlpha);
-					SET_DYNAMIC_PIXEL_SHADER_COMBO(WRITE_DEPTH_TO_DESTALPHA, bWriteDepthToAlpha);
-					SET_DYNAMIC_PIXEL_SHADER_COMBO(PIXELFOGTYPE, pShaderAPI->GetPixelFogCombo());
-					SET_DYNAMIC_PIXEL_SHADER(pbr_sg_ps30);
-				}
-				else
-				{
-					DECLARE_DYNAMIC_PIXEL_SHADER(pbr_mrao_ps30);
-					SET_DYNAMIC_PIXEL_SHADER_COMBO(NUM_LIGHTS, lightState.m_nNumLights);
-					SET_DYNAMIC_PIXEL_SHADER_COMBO(WRITEWATERFOGTODESTALPHA, bWriteWaterFogToAlpha);
-					SET_DYNAMIC_PIXEL_SHADER_COMBO(WRITE_DEPTH_TO_DESTALPHA, bWriteDepthToAlpha);
-					SET_DYNAMIC_PIXEL_SHADER_COMBO(PIXELFOGTYPE, pShaderAPI->GetPixelFogCombo());
-					SET_DYNAMIC_PIXEL_SHADER(pbr_mrao_ps30);
-				}
+				DECLARE_DYNAMIC_PIXEL_SHADER(pbr_mrao_ps30);
+				SET_DYNAMIC_PIXEL_SHADER_COMBO(NUM_LIGHTS, lightState.m_nNumLights);
+				SET_DYNAMIC_PIXEL_SHADER_COMBO(WRITEWATERFOGTODESTALPHA, bWriteWaterFogToAlpha);
+				SET_DYNAMIC_PIXEL_SHADER_COMBO(WRITE_DEPTH_TO_DESTALPHA, bWriteDepthToAlpha);
+				SET_DYNAMIC_PIXEL_SHADER_COMBO(PIXELFOGTYPE, pShaderAPI->GetPixelFogCombo());
+				SET_DYNAMIC_PIXEL_SHADER(pbr_mrao_ps30);
 			}
 		}
 

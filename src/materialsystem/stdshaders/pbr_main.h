@@ -111,18 +111,14 @@ const float4 cMRAOExponent : register(PSREG_PBR_MRAOEXPONENT);
 const float4 cAlphaTestRef : register(c75);
 #define g_f1AlphaTestReference (cAlphaTestRef.x)
 #define g_f1AlphaToCoverage    (cAlphaTestRef.y)
+#define g_f1MetalEnvMask       (cAlphaTestRef.z)
 
 //==================================================================================================
 // Samplers
 //==================================================================================================
 
-#if SPECULARGLOSSINESS
-sampler Sampler_Diffuse : register(s0);
-sampler Sampler_Specular : register(s1);
-#else
 sampler Sampler_BaseColor : register(s0);
 sampler Sampler_MRAOTexture : register(s1);
-#endif
 sampler Sampler_NormalTexture : register(s2);
 #if WRINKLEMAP
 sampler Sampler_Compress : register(s3);
@@ -242,12 +238,7 @@ float4 main(PS_INPUT i) : COLOR
 		float2 f2TexCoord = i.TexCoord;
 	#endif
 
-	float4 f4BaseTexture;
-	#if SPECULARGLOSSINESS
-		f4BaseTexture = tex2D(Sampler_Diffuse, f2TexCoord);
-	#else
-		f4BaseTexture = tex2D(Sampler_BaseColor, f2TexCoord);
-	#endif
+		float4 f4BaseTexture = tex2D(Sampler_BaseColor, f2TexCoord);
 
 		// ADD THIS BLOCK IMMEDIATELY AFTER SAMPLING THE BASE TEXTURE
 	// ADD THIS BLOCK IMMEDIATELY AFTER SAMPLING THE BASE TEXTURE
@@ -339,43 +330,23 @@ float4 main(PS_INPUT i) : COLOR
 		#endif
 
 			// --- ENVMAP METALNESS MASK ---
-			float flEnvmapMask = 1.0f;
-
-		#if SPECULARGLOSSINESS
-			float4 f4SpecularTexture = tex2D(Sampler_Specular, f2TexCoord);
-			float3 f3DiffuseColor = f4BaseTexture.rgb;
-			float3 f3SpecularColor = f4SpecularTexture.rgb;
-			float f1Roughness = 1.0f - f4SpecularTexture.a;
-			float f1AmbientOcclusion = f4BaseTexture.a;
-
-			f3SpecularColor = saturate(g_f3MRAOMultiplier.r * pow(max(f3SpecularColor, 0.0f), g_f3MRAOExponent.r) + g_f3MRAOBias.r);
-
-			// FIX: Changed g_f3MRAOBias.b to g_f3MRAOBias.g
-			f1Roughness = saturate(g_f3MRAOMultiplier.g * pow(max(f1Roughness, 0.0f), g_f3MRAOExponent.g) + g_f3MRAOBias.g);
-			f1AmbientOcclusion = saturate(g_f3MRAOMultiplier.b * pow(max(f1AmbientOcclusion, 0.0f), g_f3MRAOExponent.b) + g_f3MRAOBias.b);
-		#else
 			float4 f4MRAOTexture = tex2D(Sampler_MRAOTexture, f2TexCoord);
 			f4MRAOTexture.rgb = saturate(g_f3MRAOMultiplier * pow(max(f4MRAOTexture.rgb, 0.0f), g_f3MRAOExponent) + g_f3MRAOBias);
 
-			#if !SPECULARGLOSSINESS
+			// Variable is assigned without the 'float' re-declaration
 			f1CarPaintMask = f4MRAOTexture.a;
-		#endif
-
 			float f1Metalness = f4MRAOTexture.r;
-			if (g_f1CarPaintMode < 0.5f) {
+
+			// Dynamically mask the envmap based on user parameter
+			float flEnvmapMask = 1.0f;
+			if (g_f1MetalEnvMask > 0.5f && g_f1CarPaintMode < 0.5f) {
 				flEnvmapMask = f1Metalness;
 			}
 
 			float3 f3DiffuseColor = (1.0f - f1Metalness) * f4BaseTexture.rgb;
 			float3 f3SpecularColor = lerp(0.04f, f4BaseTexture.rgb, f1Metalness);
-			float f1Roughness = f4MRAOTexture.g;
+			float f1Roughness = max(0.02f, f4MRAOTexture.g);
 			float f1AmbientOcclusion = f4MRAOTexture.b;
-		#endif
-
-			// FIX: Enforce a global roughness floor to prevent NDF division by zero
-			f1Roughness = max(0.02f, f1Roughness);
-
-			// Declare f1SecondaryRoughness safely for all compilation states
 			float f1SecondaryRoughness = f1Roughness;
 
 			float f1TotalSpecularFade = 1.0f;
@@ -440,7 +411,8 @@ float4 main(PS_INPUT i) : COLOR
 					f3HairStrandWS = normalize(i.Bitangent + (i.Tangent * f1StrandJitter * f1JitterStrength));
 
 					// 3. Nullify GGX Variables (Direct light is handled by Kajiya-Kay later)
-					f3Lobe1Specular = float3(0.0f, 0.0f, 0.0f);
+					float hairF0 = lerp(0.01f, 0.08f, g_f1HairGloss);
+					f3Lobe1Specular = float3(hairF0, hairF0, hairF0);
 					f3Lobe2Specular = float3(0.0f, 0.0f, 0.0f);
 					f3Lobe2Diffuse = float3(0.0f, 0.0f, 0.0f);
 				}
