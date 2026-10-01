@@ -112,6 +112,7 @@ const float4 cAlphaTestRef : register(c75);
 #define g_f1AlphaTestReference (cAlphaTestRef.x)
 #define g_f1AlphaToCoverage    (cAlphaTestRef.y)
 #define g_f1MetalEnvMask       (cAlphaTestRef.z)
+#define g_f1IDPassMode         (cAlphaTestRef.w)
 
 //==================================================================================================
 // Samplers
@@ -261,6 +262,17 @@ float4 main(PS_INPUT i) : COLOR
 		}
 		#endif
 	#endif
+
+		// EARLY OUT: ID Pass completely bypasses all normal mapping, lighting, and envmaps
+		if (g_f1IDPassMode > 1.5f) {
+			// Material is $translucent or $additive. Completely discard it in ID mode.
+			clip(-1.0f);
+			return float4(0.0f, 0.0f, 0.0f, 0.0f);
+		}
+		else if (g_f1IDPassMode > 0.5f) {
+			// Material is opaque or alphatested. Render the flat ID color.
+			return float4(g_f3Tint, 1.0f);
+		}
 
 		// --- NORMAL MAP & FLAKE BLENDING ---
 		float4 f4NormalTS_raw = tex2D(Sampler_NormalTexture, f2TexCoord);

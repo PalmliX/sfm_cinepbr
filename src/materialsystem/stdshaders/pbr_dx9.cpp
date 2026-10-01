@@ -12,6 +12,9 @@
 
 #include "vtf/vtf.h"
 
+#include <unordered_map>
+#include <cmath>
+
 // Includes for PS30
 #include "pbr_vs30.inc"
 #include "pbr_mrao_ps30.inc"
@@ -54,6 +57,63 @@ static ConVar mat_specular("mat_specular", "1", FCVAR_NONE);
 static ConVar mat_pbr_parallaxmap("mat_pbr_parallaxmap", "1");
 
 static ConVar pbr_microshadows_globalstrength("pbr_microshadows_globalstrength", "0.50", FCVAR_NONE);
+
+static ConVar sfm_shader_idpass("sfm_shader_idpass", "0", FCVAR_NONE);
+
+// --- GOLDEN RATIO ID GENERATOR ---
+struct Vector3ID { float x, y, z; };
+static std::unordered_map<void*, Vector3ID> g_ObjectIDRegistry;
+static float g_fCurrentHue = 0.0f;
+
+void HSVtoRGB(float H, float S, float V, float outRGB[3]) {
+	float c = V * S;
+	float x = c * (1.0f - std::abs(std::fmod(H * 6.0f, 2.0f) - 1.0f));
+	float m = V - c;
+	float r = 0, g = 0, b = 0;
+
+	if (H < 1.0f / 6.0f) { r = c; g = x; b = 0; }
+	else if (H < 2.0f / 6.0f) { r = x; g = c; b = 0; }
+	else if (H < 3.0f / 6.0f) { r = 0; g = c; b = x; }
+	else if (H < 4.0f / 6.0f) { r = 0; g = x; b = c; }
+	else if (H < 5.0f / 6.0f) { r = x; g = 0; b = c; }
+	else { r = c; g = 0; b = x; }
+
+	outRGB[0] = r + m;
+	outRGB[1] = g + m;
+	outRGB[2] = b + m;
+}
+
+void GetIDColor(void* pMaterialIdentifier, float outColor[3]) {
+	// 1. If we already calculated a color for this material, return it
+	auto it = g_ObjectIDRegistry.find(pMaterialIdentifier);
+	if (it != g_ObjectIDRegistry.end()) {
+		outColor[0] = it->second.x;
+		outColor[1] = it->second.y;
+		outColor[2] = it->second.z;
+		return;
+	}
+
+	size_t index = g_ObjectIDRegistry.size();
+
+	// 2. Generate a perfectly buffered new hue using the Golden Ratio
+	const float goldenRatioConjugate = 0.618033988749895f;
+	g_fCurrentHue += goldenRatioConjugate;
+	if (g_fCurrentHue > 1.0f) g_fCurrentHue -= 1.0f;
+
+	// 3. 9-Tier Phase Shift for Saturation and Value
+	// This uses distinctly separated bands to prevent AE keyers from confusing similar hues.
+	// It strictly avoids plunging into deep darks (<0.6) or heavy greys (<0.45) which are notorious for keying edge-artifacts.
+	float satBands[3] = { 1.0f, 0.45f, 0.75f };
+	float valBands[3] = { 1.0f, 0.60f, 0.85f };
+
+	float sat = satBands[index % 3];
+	float val = valBands[(index / 3) % 3];
+
+	HSVtoRGB(g_fCurrentHue, sat, val, outColor);
+
+	// 4. Save to registry
+	g_ObjectIDRegistry[pMaterialIdentifier] = { outColor[0], outColor[1], outColor[2] };
+}
 
 //==========================================================================//
 // Shader Start
@@ -662,26 +722,42 @@ SHADER_DRAW
 			}
 			pShaderAPI->SetPixelShaderConstant(77, cHairData);
 
-			// --- ALPHATEST REFERENCE & A2C ---
+			float idPassValue = 0.0f;
+			if (sfm_shader_idpass.GetBool()) {
+				// BT_BLEND = $translucent, BT_BLENDADD = $additive
+				// If it's semi-transparent, send 2.0 (Discard). Otherwise send 1.0 (Solid ID).
+				idPassValue = (nBlendType == BT_BLEND || nBlendType == BT_BLENDADD) ? 2.0f : 1.0f;
+			}
+
 			float cAlphaTestRef[4] = {
 				clamp(params[AlphaTestReference]->GetFloatValue(), 0.0f, 1.0f),
 				(params[AllowAlphaToCoverage]->IsDefined() && params[AllowAlphaToCoverage]->GetIntValue()) ? 1.0f : 0.0f,
 				(float)params[MetalEnvMask]->GetIntValue(),
-				0.0f
+				idPassValue
 			};
 			pShaderAPI->SetPixelShaderConstant(75, cAlphaTestRef);
 			// ---------------------------
 
 			Vector4D color(0, 0, 0, 0);
-			if (bHasColor)
+			if (sfm_shader_idpass.GetBool())
 			{
-				params[Color1]->GetVecValue(color.Base(), 3);
+				float idColor[3];
+				// IMaterialVar pointers are perfectly stable memory addresses per material instance
+				GetIDColor((void*)params[BaseColor], idColor);
+				color.Init(idColor[0], idColor[1], idColor[2], 1.0f);
 			}
 			else
 			{
-				color.Init(1, 1, 1);
+				if (bHasColor)
+				{
+					params[Color1]->GetVecValue(color.Base(), 3);
+				}
+				else
+				{
+					color.Init(1, 1, 1);
+				}
+				color.w = float(mat_fullbright.GetInt() == 1);
 			}
-			color.w = float(mat_fullbright.GetInt() == 1);
 			pShaderAPI->SetPixelShaderConstant(PSREG_SELFILLUMTINT, color.Base());
 
 			LightState_t lightState;
