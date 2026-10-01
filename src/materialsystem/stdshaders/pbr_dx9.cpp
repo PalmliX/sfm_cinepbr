@@ -59,6 +59,8 @@ static ConVar mat_pbr_parallaxmap("mat_pbr_parallaxmap", "1");
 static ConVar pbr_microshadows_globalstrength("pbr_microshadows_globalstrength", "0.50", FCVAR_NONE);
 
 static ConVar sfm_shader_idpass("sfm_shader_idpass", "0", FCVAR_NONE);
+static ConVar sfm_shader_depthpass("sfm_shader_depthpass", "0", FCVAR_NONE);
+static ConVar sfm_shader_depth_max("sfm_shader_depth_max", "2000.0", FCVAR_NONE);
 
 // --- GOLDEN RATIO ID GENERATOR ---
 struct Vector3ID { float x, y, z; };
@@ -722,20 +724,27 @@ SHADER_DRAW
 			}
 			pShaderAPI->SetPixelShaderConstant(77, cHairData);
 
-			float idPassValue = 0.0f;
+			float overrideMode = 0.0f;
+			bool bDiscardTranslucent = (nBlendType == BT_BLEND || nBlendType == BT_BLENDADD);
+
 			if (sfm_shader_idpass.GetBool()) {
-				// BT_BLEND = $translucent, BT_BLENDADD = $additive
-				// If it's semi-transparent, send 2.0 (Discard). Otherwise send 1.0 (Solid ID).
-				idPassValue = (nBlendType == BT_BLEND || nBlendType == BT_BLENDADD) ? 2.0f : 1.0f;
+				overrideMode = bDiscardTranslucent ? 2.0f : 1.0f; // 1 = ID Pass, 2 = Discard
+			}
+			else if (sfm_shader_depthpass.GetBool()) {
+				overrideMode = bDiscardTranslucent ? 2.0f : 3.0f; // 3 = Depth Pass, 2 = Discard
 			}
 
 			float cAlphaTestRef[4] = {
 				clamp(params[AlphaTestReference]->GetFloatValue(), 0.0f, 1.0f),
 				(params[AllowAlphaToCoverage]->IsDefined() && params[AllowAlphaToCoverage]->GetIntValue()) ? 1.0f : 0.0f,
 				(float)params[MetalEnvMask]->GetIntValue(),
-				idPassValue
+				overrideMode
 			};
 			pShaderAPI->SetPixelShaderConstant(75, cAlphaTestRef);
+
+			// Pass the max depth range to HLSL via register c78
+			float cDepthControls[4] = { sfm_shader_depth_max.GetFloat(), 0.0f, 0.0f, 0.0f };
+			pShaderAPI->SetPixelShaderConstant(78, cDepthControls);
 			// ---------------------------
 
 			Vector4D color(0, 0, 0, 0);

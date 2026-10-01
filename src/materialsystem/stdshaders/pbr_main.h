@@ -112,8 +112,10 @@ const float4 cAlphaTestRef : register(c75);
 #define g_f1AlphaTestReference (cAlphaTestRef.x)
 #define g_f1AlphaToCoverage    (cAlphaTestRef.y)
 #define g_f1MetalEnvMask       (cAlphaTestRef.z)
-#define g_f1IDPassMode         (cAlphaTestRef.w)
+#define g_f1OverrideMode       (cAlphaTestRef.w) 
 
+const float4 cDepthControls : register(c78);
+#define g_f1DepthMax           (cDepthControls.x)
 //==================================================================================================
 // Samplers
 //==================================================================================================
@@ -263,16 +265,33 @@ float4 main(PS_INPUT i) : COLOR
 		#endif
 	#endif
 
-		// EARLY OUT: ID Pass completely bypasses all normal mapping, lighting, and envmaps
-		if (g_f1IDPassMode > 1.5f) {
-			// Material is $translucent or $additive. Completely discard it in ID mode.
-			clip(-1.0f);
-			return float4(0.0f, 0.0f, 0.0f, 0.0f);
+		// EARLY OUT: Override Modes bypass all normal mapping, lighting, and envmaps
+		if (g_f1OverrideMode > 0.5f) 
+		{
+			if (g_f1OverrideMode > 2.5f) {
+				// MODE 3.0: Depth Pass
+				// Calculate pure mathematical distance from the camera to this exact pixel
+				float dist = length(f3WorldPos - g_f3CameraPos);
+				
+				// Normalize it against the user's max depth ConVar
+				// (max() prevents divide-by-zero crashes if user accidentally types 0)
+				float normalizedDepth = saturate(dist / max(1.0f, g_f1DepthMax));
+				
+				// Output grayscale gradient (Black = touching camera, White = far away)
+				return float4(normalizedDepth, normalizedDepth, normalizedDepth, 1.0f);
+			}
+			else if (g_f1OverrideMode > 1.5f) {
+				// MODE 2.0: Discard Translucents (Used by both ID and Depth passes)
+				clip(-1.0f);
+				return float4(0.0f, 0.0f, 0.0f, 0.0f);
+			}
+			else {
+				// MODE 1.0: Object ID Pass
+				return float4(g_f3Tint, 1.0f);
+			}
 		}
-		else if (g_f1IDPassMode > 0.5f) {
-			// Material is opaque or alphatested. Render the flat ID color.
-			return float4(g_f3Tint, 1.0f);
-		}
+
+		// --- NORMAL MAP & FLAKE BLENDING ---
 
 		// --- NORMAL MAP & FLAKE BLENDING ---
 		float4 f4NormalTS_raw = tex2D(Sampler_NormalTexture, f2TexCoord);
