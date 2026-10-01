@@ -58,9 +58,9 @@ static ConVar mat_pbr_parallaxmap("mat_pbr_parallaxmap", "1");
 
 static ConVar pbr_microshadows_globalstrength("pbr_microshadows_globalstrength", "0.50", FCVAR_NONE);
 
-static ConVar sfm_shader_idpass("sfm_shader_idpass", "0", FCVAR_NONE);
-static ConVar sfm_shader_depthpass("sfm_shader_depthpass", "0", FCVAR_NONE);
-static ConVar sfm_shader_depth_max("sfm_shader_depth_max", "2000.0", FCVAR_NONE);
+static ConVar cinepbr_idpass("cinepbr_idpass", "0", FCVAR_NONE);
+static ConVar cinepbr_depthpass("cinepbr_depthpass", "0", FCVAR_NONE);
+static ConVar cinepbr_depth_max("cinepbr_depth_max", "2000.0", FCVAR_NONE);
 
 // --- GOLDEN RATIO ID GENERATOR ---
 struct Vector3ID { float x, y, z; };
@@ -196,6 +196,8 @@ SHADER_PARAM(PearlBlendAmount, SHADER_PARAM_TYPE_FLOAT, "0.0", "Opacity of the p
 SHADER_PARAM(Hair, SHADER_PARAM_TYPE_BOOL, "0", "Enable Hair Mode")
 SHADER_PARAM(HairGloss, SHADER_PARAM_TYPE_VEC3, "[0.5 1.0 1.0]", "Hair Gloss, Direct Brightness, Grazing Brightness")
 
+SHADER_PARAM(ShadowCasterOnly, SHADER_PARAM_TYPE_BOOL, "0", "Hides the material from the camera but still casts shadows")
+
 END_SHADER_PARAMS;
 
 // Initializing parameters
@@ -274,6 +276,7 @@ SHADER_INIT_PARAMS()
 	InitFloatParam(DualLobe_LerpFactor, params, 0.5f);
 	InitVecParam(HairGloss, params, 0.5f, 1.0f, 1.0f);
 	InitFloatParam(AlphaTestReference, params, 0.5f);
+	InitIntParam(ShadowCasterOnly, params, 0);
 
 	if (!mat_pbr_parallaxmap.GetBool() || params[Compress]->IsDefined())
 	{
@@ -727,10 +730,10 @@ SHADER_DRAW
 			float overrideMode = 0.0f;
 			bool bDiscardTranslucent = (nBlendType == BT_BLEND || nBlendType == BT_BLENDADD);
 
-			if (sfm_shader_idpass.GetBool()) {
+			if (cinepbr_idpass.GetBool()) {
 				overrideMode = bDiscardTranslucent ? 2.0f : 1.0f; // 1 = ID Pass, 2 = Discard
 			}
-			else if (sfm_shader_depthpass.GetBool()) {
+			else if (cinepbr_depthpass.GetBool()) {
 				overrideMode = bDiscardTranslucent ? 2.0f : 3.0f; // 3 = Depth Pass, 2 = Discard
 			}
 
@@ -742,13 +745,18 @@ SHADER_DRAW
 			};
 			pShaderAPI->SetPixelShaderConstant(75, cAlphaTestRef);
 
-			// Pass the max depth range to HLSL via register c78
-			float cDepthControls[4] = { sfm_shader_depth_max.GetFloat(), 0.0f, 0.0f, 0.0f };
+			// Pass the max depth range (X) and the ShadowCaster toggle (Y) to HLSL via register c78
+			float cDepthControls[4] = {
+				cinepbr_depth_max.GetFloat(),
+				(float)params[ShadowCasterOnly]->GetIntValue(),
+				0.0f,
+				0.0f
+			};
 			pShaderAPI->SetPixelShaderConstant(78, cDepthControls);
 			// ---------------------------
 
 			Vector4D color(0, 0, 0, 0);
-			if (sfm_shader_idpass.GetBool())
+			if (cinepbr_idpass.GetBool())
 			{
 				float idColor[3];
 				// IMaterialVar pointers are perfectly stable memory addresses per material instance

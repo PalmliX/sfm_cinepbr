@@ -116,6 +116,7 @@ const float4 cAlphaTestRef : register(c75);
 
 const float4 cDepthControls : register(c78);
 #define g_f1DepthMax           (cDepthControls.x)
+#define g_f1ShadowCasterOnly   (cDepthControls.y)
 //==================================================================================================
 // Samplers
 //==================================================================================================
@@ -264,6 +265,14 @@ float4 main(PS_INPUT i) : COLOR
 		}
 		#endif
 	#endif
+
+		// EARLY OUT: Shadow Caster Only Mode
+		if (g_f1ShadowCasterOnly > 0.5f) {
+			// Immediately abort rendering this pixel. 
+			// SFM's depthwrite shader will still cast the shadow natively!
+			clip(-1.0f);
+			return float4(0.0f, 0.0f, 0.0f, 0.0f);
+		}
 
 		// EARLY OUT: Override Modes bypass all normal mapping, lighting, and envmaps
 		if (g_f1OverrideMode > 0.5f) 
