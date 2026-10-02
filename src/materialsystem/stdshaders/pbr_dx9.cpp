@@ -198,6 +198,8 @@ SHADER_PARAM(HairGloss, SHADER_PARAM_TYPE_VEC3, "[0.5 1.0 1.0]", "Hair Gloss, Di
 
 SHADER_PARAM(ShadowCasterOnly, SHADER_PARAM_TYPE_BOOL, "0", "Hides the material from the camera but still casts shadows")
 
+SHADER_PARAM(DepthBias, SHADER_PARAM_TYPE_FLOAT, "0.0", "Custom depth push for 2.5D cards")
+
 END_SHADER_PARAMS;
 
 // Initializing parameters
@@ -277,6 +279,7 @@ SHADER_INIT_PARAMS()
 	InitVecParam(HairGloss, params, 0.5f, 1.0f, 1.0f);
 	InitFloatParam(AlphaTestReference, params, 0.5f);
 	InitIntParam(ShadowCasterOnly, params, 0);
+	InitFloatParam(DepthBias, params, 0.0f);
 
 	if (!mat_pbr_parallaxmap.GetBool() || params[Compress]->IsDefined())
 	{
@@ -360,8 +363,11 @@ SHADER_INIT
 		SET_FLAGS2(MATERIAL_VAR2_USE_FLASHLIGHT);
 	}
 
-	SET_FLAGS2(MATERIAL_VAR2_USE_GBUFFER0);
-	SET_FLAGS2(MATERIAL_VAR2_USE_GBUFFER1);
+	if (!IS_FLAG_SET(MATERIAL_VAR_TRANSLUCENT) && !IS_FLAG_SET(MATERIAL_VAR_DECAL) && !IS_FLAG_SET(MATERIAL_VAR_ADDITIVE))
+	{
+		SET_FLAGS2(MATERIAL_VAR2_USE_GBUFFER0);
+		SET_FLAGS2(MATERIAL_VAR2_USE_GBUFFER1);
+	}
 };
 
 SHADER_DRAW
@@ -443,6 +449,38 @@ SHADER_DRAW
 			{
 				SetDefaultBlendingShadowState(BaseTexture, true);
 			}
+
+			if (bWorldNormal)
+			{
+				// SSAO Pass MUST NOT use alpha blending (Prevents MRT Crash)
+				pShaderShadow->EnableBlending(false);
+				pShaderShadow->EnableDepthWrites(true);
+			}
+			else if (bHasFlashlight)
+			{
+				if (IS_FLAG_SET(MATERIAL_VAR_TRANSLUCENT))
+				{
+					pShaderShadow->EnableBlending(true);
+					pShaderShadow->BlendFunc(SHADER_BLEND_SRC_ALPHA, SHADER_BLEND_ONE);
+				}
+				else
+				{
+					pShaderShadow->EnableBlending(true);
+					pShaderShadow->BlendFunc(SHADER_BLEND_ONE, SHADER_BLEND_ONE);
+				}
+			}
+			else
+			{
+				SetDefaultBlendingShadowState(BaseTexture, true);
+			}
+
+			// --- EXPLICIT DEPTH OVERRIDE TO FIX X-RAY BUG ---
+			if (IS_FLAG_SET(MATERIAL_VAR_TRANSLUCENT) || IS_FLAG_SET(MATERIAL_VAR_ADDITIVE))
+			{
+				pShaderShadow->EnableDepthTest(true);
+				pShaderShadow->EnableDepthWrites(true);
+			}
+			// ------------------------------------------------
 
 			pShaderShadow->EnableSRGBWrite(true);
 
@@ -855,6 +893,12 @@ SHADER_DRAW
 
 			pShaderAPI->SetPixelShaderConstant(PSREG_EYEPOS_SPEC_EXPONENT, vEyePos_SpecExponent, 1);
 			SetVertexShaderTextureTransform(VERTEX_SHADER_SHADER_SPECIFIC_CONST_0, BaseTextureTransform);
+
+			// --- CUSTOM DEPTH BIAS ---
+			float cDepthBiasData[4] = { params[DepthBias]->GetFloatValue(), 0.0f, 0.0f, 0.0f };
+			pShaderAPI->SetVertexShaderConstant(VERTEX_SHADER_SHADER_SPECIFIC_CONST_2, cDepthBiasData);
+			// -------------------------
+
 			pShaderAPI->SetPixelShaderFogParams(PSREG_FOG_PARAMS);
 
 			float flSSAOStrength = 1.0f;

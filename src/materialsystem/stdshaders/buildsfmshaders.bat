@@ -60,3 +60,5 @@ if not "%dynamic_shaders%" == "1" (
 
 rem %TTEXE% -diff %tt_all_start% -cur
 rem echo.
+
+pause

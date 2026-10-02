@@ -17,6 +17,9 @@ const float4 cBaseTexCoordTransform[2]  : register(SHADER_SPECIFIC_CONST_0);
 // Used for SSAO
 const float4 g_vEyeVector				: register(SHADER_SPECIFIC_CONST_8);
 
+// --- CUSTOM REGISTERS ---
+const float4 cDepthBias                 : register(SHADER_SPECIFIC_CONST_2);
+
 //-----------------------------------------------------------------------------
 // Input vertex format
 //-----------------------------------------------------------------------------
@@ -98,6 +101,10 @@ VS_OUTPUT main( const VS_INPUT v )
 	// Transform into projection space
 	float4 vProjPos = mul(float4(f3WorldPos, 1), cViewProj);
     o.ProjPos = vProjPos;
+
+	// --- CUSTOM DEPTH BIAS ---
+	vProjPos.z -= (cDepthBias.x * vProjPos.w);
+	// -------------------------
 
     o.ProjPosXYW_WrinkleWeight.xy = vProjPos.xy;
     o.ProjPosXYW_WrinkleWeight.z = vProjPos.w;
