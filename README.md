@@ -15,7 +15,8 @@
 #### Added an envmap translation offset, which allows animation of the envmap position in x,y,z in SFM to simulate movement, for example a car driving down a tunnel with the lights moving accross car.
 #### Car Paint shader with included paint speckle normal map.
 #### Hair shading mode based on the Kajiya-Kay rendering model.
-#### *ATTENTION: These changes were all vibe coded*
+#### Render passes, such as material id, camera depth, world depth, world normals, UV, world position, as well as "holdout masks" options for translucency and emissives.
+#### *ATTENTION: These changes were all coded by AI*
 
 # Install
 ## *You MUST be subscribed to Ficool2's Shader Loader: https://steamcommunity.com/sharedfiles/filedetails/?id=3669466136 You can still be subscribed to other PBR shaders since this uses a new shader name in the .vmt (Cinepbr)
