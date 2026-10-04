@@ -1,6 +1,6 @@
 ### This repo started as a means to host a compiled version of @WhiteRedDragons fork of @ficool2 's SFM PBR Shader, however over time I couldn't resist vibe coding a bunch of extra features and enough changed that it became it's own thing and so it's now known as sfm_cinepbr, a PBR shader focused on high-end "cinematic" rendering features vs more cartoon type features.
 
-## Fixes and new Features compared to Ficools' workshop version
+## Fixes and new Features compared to Ficools' original workshop version
 #### SSS *(Sub-Surface Scattering)*
 #### Working POM *(Parallax Occlusion Mapping)*
 #### Dual-Lobe Specular *(Also known as micro roughness, basically can make skin and similar materials look more realistic by blending two types of highlights together in the same material)*
@@ -8,14 +8,13 @@
 #### $nocull materials are now lit properly i.e. they don't become lit from behind.
 #### Many additional material settings for things like normal map intensity, channel inverting, metallic/roughness bias, exponent and more!
 ## Fixes and new Features compared to @WhiteRedDragons fork
-#### Restored cubemap rendering and added a feature whereby envmaps (cubemaps) no longer glow in the dark and are now masked by SFM dynamic lights. Also metals are no longer rendered black when lighting is disabled. 
-#### This feature is controllable (off, blend, or overdrive) via a material parameter ($envdlightfactor). See parameters list below for more details.
-#### Fixed the old issue with alphatested materials becoming transparent when SSAO is also enabled on the material. However currently you also need to define an $alphatestreference value in order to fully enable.
-#### rt_camera support which is affected by normal and roughness maps, and masked by metalness. It replaces envmap reflections so it should also work in diffuse/specular mode.
-#### Added an envmap translation offset, which allows animation of the envmap position in x,y,z in SFM to simulate movement, for example a car driving down a tunnel with the lights moving accross car.
-#### Car Paint shader with included paint speckle normal map.
+#### Car Paint mode with included paint speckle normal map.
 #### Hair shading mode based on the Kajiya-Kay rendering model.
 #### Render passes, such as material id, camera depth, world depth, world normals, UV, world position, as well as "holdout masks" options for translucency and emissives.
+#### Overhauled envmaps to be more controllable within this faux PBR metalness/roughness workflow. Different options for masking the envmaps based on SFM dynamic lights (no more glow in the dark envmaps), and/or metalness only or roughness only. 
+#### Alphatested materials are no longer transparent when SSAO is also enabled on the material. 
+#### rt_camera support which is affected by normal and roughness maps, and masked by metalness. It replaces envmap reflections.
+#### Envmap translation offset material commands, which allows animation of the envmap position in x,y,z in SFM to simulate movement, for example a car driving down a tunnel with the reflection of lights moving across the car surface.
 #### *ATTENTION: These changes were all coded by AI*
 
 # Install
