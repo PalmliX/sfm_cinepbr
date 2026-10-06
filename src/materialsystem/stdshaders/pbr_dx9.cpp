@@ -59,8 +59,15 @@ static ConVar mat_pbr_parallaxmap("mat_pbr_parallaxmap", "1");
 static ConVar pbr_microshadows_globalstrength("pbr_microshadows_globalstrength", "0.50", FCVAR_NONE);
 
 static ConVar cinepbr_idpass("cinepbr_idpass", "0", FCVAR_NONE);
+static ConVar cinepbr_normalpass("cinepbr_normalpass", "0", FCVAR_NONE);
+static ConVar cinepbr_uvpass("cinepbr_uvpass", "0", FCVAR_NONE);
+static ConVar cinepbr_worldpass("cinepbr_worldpass", "0", FCVAR_NONE);
 static ConVar cinepbr_depthpass("cinepbr_depthpass", "0", FCVAR_NONE);
+static ConVar cinepbr_wdepth("cinepbr_wdepth", "0", FCVAR_NONE);
 static ConVar cinepbr_depth_max("cinepbr_depth_max", "2000.0", FCVAR_NONE);
+
+static ConVar cinepbr_emissive("cinepbr_emissive", "0", FCVAR_NONE);
+static ConVar cinepbr_translucent("cinepbr_translucent", "0", FCVAR_NONE);
 
 // --- GOLDEN RATIO ID GENERATOR ---
 struct Vector3ID { float x, y, z; };
@@ -771,6 +778,18 @@ SHADER_DRAW
 			if (cinepbr_idpass.GetBool()) {
 				overrideMode = bDiscardTranslucent ? 2.0f : 1.0f; // 1 = ID Pass, 2 = Discard
 			}
+			else if (cinepbr_normalpass.GetBool()) {
+				overrideMode = bDiscardTranslucent ? 2.0f : 7.0f; // 7 = World Normals Pass
+			}
+			else if (cinepbr_uvpass.GetBool()) {
+				overrideMode = bDiscardTranslucent ? 2.0f : 6.0f; // 6 = UV Pass
+			}
+			else if (cinepbr_worldpass.GetBool()) {
+				overrideMode = bDiscardTranslucent ? 2.0f : 5.0f; // 5 = World Position Pass
+			}
+			else if (cinepbr_wdepth.GetBool()) {
+				overrideMode = bDiscardTranslucent ? 2.0f : 4.0f; // 4 = World Depth Pass, 2 = Discard
+			}
 			else if (cinepbr_depthpass.GetBool()) {
 				overrideMode = bDiscardTranslucent ? 2.0f : 3.0f; // 3 = Depth Pass, 2 = Discard
 			}
@@ -791,7 +810,15 @@ SHADER_DRAW
 				0.0f
 			};
 			pShaderAPI->SetPixelShaderConstant(78, cDepthControls);
-			// ---------------------------
+
+			// --- HOLDOUT PASS CONTROLS ---
+			float cHoldoutControls[4] = {
+				(float)cinepbr_emissive.GetInt(),
+				(float)cinepbr_translucent.GetInt(),
+				bDiscardTranslucent ? 1.0f : 0.0f, // Tells HLSL if this specific material is translucent/additive
+				0.0f
+			};
+			pShaderAPI->SetPixelShaderConstant(79, cHoldoutControls);
 
 			Vector4D color(0, 0, 0, 0);
 			if (cinepbr_idpass.GetBool())

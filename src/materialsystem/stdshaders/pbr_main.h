@@ -117,6 +117,11 @@ const float4 cAlphaTestRef : register(c75);
 const float4 cDepthControls : register(c78);
 #define g_f1DepthMax           (cDepthControls.x)
 #define g_f1ShadowCasterOnly   (cDepthControls.y)
+
+const float4 cHoldoutControls : register(c79);
+#define g_f1EmissiveMode     (cHoldoutControls.x)
+#define g_f1TranslucentMode  (cHoldoutControls.y)
+#define g_f1IsTranslucent    (cHoldoutControls.z)
 //==================================================================================================
 // Samplers
 //==================================================================================================
@@ -244,7 +249,6 @@ float4 main(PS_INPUT i) : COLOR
 
 		float4 f4BaseTexture = tex2D(Sampler_BaseColor, f2TexCoord);
 
-		// ADD THIS BLOCK IMMEDIATELY AFTER SAMPLING THE BASE TEXTURE
 	// ADD THIS BLOCK IMMEDIATELY AFTER SAMPLING THE BASE TEXTURE
 	#if ALPHATEST
 #		if WORLD_NORMAL
@@ -266,6 +270,22 @@ float4 main(PS_INPUT i) : COLOR
 		#endif
 	#endif
 
+		// --- TRANSLUCENT HOLDOUT PASSES ---
+		if (g_f1TranslucentMode > 1.5f) {
+			// Mode 2: Disable Translucent Rendering entirely
+			if (g_f1IsTranslucent > 0.5f) {
+				clip(-1.0f);
+				return float4(0.0f, 0.0f, 0.0f, 0.0f);
+			}
+		}
+		else if (g_f1TranslucentMode > 0.5f) {
+			// Mode 1: Display ONLY Translucent Materials
+			if (g_f1IsTranslucent < 0.5f) {
+				// Opaque materials early-out. They return pure black but write to the depth buffer to occlude.
+				return float4(0.0f, 0.0f, 0.0f, 1.0f);
+			}
+		}
+
 		// EARLY OUT: Shadow Caster Only Mode
 		if (g_f1ShadowCasterOnly > 0.5f) {
 			// Immediately abort rendering this pixel. 
@@ -275,17 +295,32 @@ float4 main(PS_INPUT i) : COLOR
 		}
 
 		// EARLY OUT: Override Modes bypass all normal mapping, lighting, and envmaps
-		if (g_f1OverrideMode > 0.5f) 
+		if (g_f1OverrideMode > 0.5f && g_f1OverrideMode < 6.5f)
 		{
-			if (g_f1OverrideMode > 2.5f) {
+			if (g_f1OverrideMode > 5.5f) {
+				// MODE 6.0: UV Pass
+				// Maps horizontal (U) to Red and vertical (V) to Green. Blue remains 0.
+				return float4(f2TexCoord.x, f2TexCoord.y, 0.0f, 1.0f);
+			}
+			else if (g_f1OverrideMode > 4.5f) {
+				// MODE 5.0: World Position Pass
+				// Maps absolute X, Y, Z coordinates to Red, Green, Blue channels.
+				return float4(f3WorldPos / max(1.0f, g_f1DepthMax), 1.0f);
+			}
+			else if (g_f1OverrideMode > 3.5f) {
+				// MODE 4.0: World-Locked Depth Pass
+				float dist = length(f3WorldPos);
+				float normalizedDepth = saturate(dist / max(1.0f, g_f1DepthMax));
+				return float4(normalizedDepth, normalizedDepth, normalizedDepth, 1.0f);
+			}
+			else if (g_f1OverrideMode > 2.5f) {
 				// MODE 3.0: Depth Pass
 				// Calculate pure mathematical distance from the camera to this exact pixel
 				float dist = length(f3WorldPos - g_f3CameraPos);
-				
+
 				// Normalize it against the user's max depth ConVar
-				// (max() prevents divide-by-zero crashes if user accidentally types 0)
 				float normalizedDepth = saturate(dist / max(1.0f, g_f1DepthMax));
-				
+
 				// Output grayscale gradient (Black = touching camera, White = far away)
 				return float4(normalizedDepth, normalizedDepth, normalizedDepth, 1.0f);
 			}
@@ -299,8 +334,6 @@ float4 main(PS_INPUT i) : COLOR
 				return float4(g_f3Tint, 1.0f);
 			}
 		}
-
-		// --- NORMAL MAP & FLAKE BLENDING ---
 
 		// --- NORMAL MAP & FLAKE BLENDING ---
 		float4 f4NormalTS_raw = tex2D(Sampler_NormalTexture, f2TexCoord);
@@ -368,6 +401,12 @@ float4 main(PS_INPUT i) : COLOR
 			float fSSAODepth = i.LightmapTexCoord3.w;
 			return float4(f3NormalWS, fSSAODepth);
 		#endif
+
+			// --- WORLD NORMALS PASS ---
+			if (g_f1OverrideMode > 6.5f) {
+				// Remap the [-1.0 to 1.0] vector range into [0.0 to 1.0] RGB color space
+				return float4(f3NormalWS * 0.5f + 0.5f, 1.0f);
+			}
 
 			// --- ENVMAP METALNESS MASK ---
 			float4 f4MRAOTexture = tex2D(Sampler_MRAOTexture, f2TexCoord);
@@ -747,10 +786,25 @@ float4 main(PS_INPUT i) : COLOR
 
 						bool bWriteDepthToAlpha = (WRITE_DEPTH_TO_DESTALPHA != 0) && (WRITEWATERFOGTODESTALPHA == 0);
 
-						#if (EMISSIVE && !FLASHLIGHT)
+							#if EMISSIVE
+						// Mode 0: Normal Emissive Behavior
+						if (g_f1EmissiveMode < 0.5f) {
 							f3CombinedLighting += f3Emission;
+			}
+							#endif
 						#endif
-					#endif
 
-					return FinalOutput(float4(f3CombinedLighting, f1Alpha), f1FogFactor, PIXELFOGTYPE, TONEMAP_SCALE_LINEAR, bWriteDepthToAlpha, f3ProjPos.z);
+						// --- EMISSIVE HOLDOUT PASS ---
+						if (g_f1EmissiveMode > 0.5f && g_f1EmissiveMode < 1.5f) {
+						#if (EMISSIVE && !FLASHLIGHT)
+							// Mode 1: Override all light calculations, output ONLY emissive texture
+							f3CombinedLighting = f3Emission;
+						#else
+							// Mode 1: Force non-emissive materials (and flashlight passes) to pure black
+							f3CombinedLighting = float3(0.0f, 0.0f, 0.0f);
+						#endif
+						}
+						// -----------------------------
+
+						return FinalOutput(float4(f3CombinedLighting, f1Alpha), f1FogFactor, PIXELFOGTYPE, TONEMAP_SCALE_LINEAR, bWriteDepthToAlpha, f3ProjPos.z);
 }
