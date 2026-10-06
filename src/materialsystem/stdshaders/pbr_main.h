@@ -314,7 +314,7 @@ float4 main(PS_INPUT i) : COLOR
 				return float4(normalizedDepth, normalizedDepth, normalizedDepth, 1.0f);
 			}
 			else if (g_f1OverrideMode > 2.5f) {
-				// MODE 3.0: Depth Pass
+				// MODE 3.0: Camera Depth Pass
 				// Calculate pure mathematical distance from the camera to this exact pixel
 				float dist = length(f3WorldPos - g_f3CameraPos);
 

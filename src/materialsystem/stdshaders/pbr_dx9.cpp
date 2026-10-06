@@ -58,12 +58,12 @@ static ConVar mat_pbr_parallaxmap("mat_pbr_parallaxmap", "1");
 
 static ConVar pbr_microshadows_globalstrength("pbr_microshadows_globalstrength", "0.50", FCVAR_NONE);
 
-static ConVar cinepbr_idpass("cinepbr_idpass", "0", FCVAR_NONE);
-static ConVar cinepbr_normalpass("cinepbr_normalpass", "0", FCVAR_NONE);
-static ConVar cinepbr_uvpass("cinepbr_uvpass", "0", FCVAR_NONE);
-static ConVar cinepbr_worldpass("cinepbr_worldpass", "0", FCVAR_NONE);
-static ConVar cinepbr_depthpass("cinepbr_depthpass", "0", FCVAR_NONE);
-static ConVar cinepbr_wdepth("cinepbr_wdepth", "0", FCVAR_NONE);
+static ConVar cinepbr_matid("cinepbr_matid", "0", FCVAR_NONE);
+static ConVar cinepbr_worldnormals("cinepbr_worldnormals", "0", FCVAR_NONE);
+static ConVar cinepbr_uv("cinepbr_uv", "0", FCVAR_NONE);
+static ConVar cinepbr_worldposition("cinepbr_worldposition", "0", FCVAR_NONE);
+static ConVar cinepbr_camdepth("cinepbr_camdepth", "0", FCVAR_NONE);
+static ConVar cinepbr_worlddepth("cinepbr_worlddepth", "0", FCVAR_NONE);
 static ConVar cinepbr_depth_max("cinepbr_depth_max", "2000.0", FCVAR_NONE);
 
 static ConVar cinepbr_emissive("cinepbr_emissive", "0", FCVAR_NONE);
@@ -775,22 +775,22 @@ SHADER_DRAW
 			float overrideMode = 0.0f;
 			bool bDiscardTranslucent = (nBlendType == BT_BLEND || nBlendType == BT_BLENDADD);
 
-			if (cinepbr_idpass.GetBool()) {
+			if (cinepbr_matid.GetBool()) {
 				overrideMode = bDiscardTranslucent ? 2.0f : 1.0f; // 1 = ID Pass, 2 = Discard
 			}
-			else if (cinepbr_normalpass.GetBool()) {
+			else if (cinepbr_worldnormals.GetBool()) {
 				overrideMode = bDiscardTranslucent ? 2.0f : 7.0f; // 7 = World Normals Pass
 			}
-			else if (cinepbr_uvpass.GetBool()) {
+			else if (cinepbr_uv.GetBool()) {
 				overrideMode = bDiscardTranslucent ? 2.0f : 6.0f; // 6 = UV Pass
 			}
-			else if (cinepbr_worldpass.GetBool()) {
+			else if (cinepbr_worldposition.GetBool()) {
 				overrideMode = bDiscardTranslucent ? 2.0f : 5.0f; // 5 = World Position Pass
 			}
-			else if (cinepbr_wdepth.GetBool()) {
+			else if (cinepbr_worlddepth.GetBool()) {
 				overrideMode = bDiscardTranslucent ? 2.0f : 4.0f; // 4 = World Depth Pass, 2 = Discard
 			}
-			else if (cinepbr_depthpass.GetBool()) {
+			else if (cinepbr_camdepth.GetBool()) {
 				overrideMode = bDiscardTranslucent ? 2.0f : 3.0f; // 3 = Depth Pass, 2 = Discard
 			}
 
@@ -821,7 +821,7 @@ SHADER_DRAW
 			pShaderAPI->SetPixelShaderConstant(79, cHoldoutControls);
 
 			Vector4D color(0, 0, 0, 0);
-			if (cinepbr_idpass.GetBool())
+			if (cinepbr_matid.GetBool())
 			{
 				float idColor[3];
 				// IMaterialVar pointers are perfectly stable memory addresses per material instance
