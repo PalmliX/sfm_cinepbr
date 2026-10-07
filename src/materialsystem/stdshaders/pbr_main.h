@@ -122,6 +122,7 @@ const float4 cHoldoutControls : register(c79);
 #define g_f1EmissiveMode     (cHoldoutControls.x)
 #define g_f1TranslucentMode  (cHoldoutControls.y)
 #define g_f1IsTranslucent    (cHoldoutControls.z)
+#define g_f1AcesPreview      (cHoldoutControls.w)
 //==================================================================================================
 // Samplers
 //==================================================================================================
@@ -171,6 +172,17 @@ struct PS_INPUT
 
 	float NoCullDirection : VFACE;
 };
+
+// Narkowicz ACES Tone Mapping Fit
+float3 ACESFilm(float3 x)
+{
+	float a = 2.51f;
+	float b = 0.03f;
+	float c = 2.43f;
+	float d = 0.59f;
+	float e = 0.14f;
+	return saturate((x * (a * x + b)) / (x * (c * x + d) + e));
+}
 
 float ApplyMicroShadow(float ao, float3 N, float3 L, float shadow)
 {
@@ -805,6 +817,18 @@ float4 main(PS_INPUT i) : COLOR
 						#endif
 						}
 						// -----------------------------
-
-						return FinalOutput(float4(f3CombinedLighting, f1Alpha), f1FogFactor, PIXELFOGTYPE, TONEMAP_SCALE_LINEAR, bWriteDepthToAlpha, f3ProjPos.z);
+						
+						// 1. Capture the final engine output (including fog)
+						float4 result = FinalOutput(float4(f3CombinedLighting, f1Alpha), f1FogFactor, PIXELFOGTYPE, TONEMAP_SCALE_LINEAR, bWriteDepthToAlpha, f3ProjPos.z);
+						
+						// 2. Apply ACES Preview if the ConVar is set to 1
+						if (g_f1AcesPreview > 0.5f) {
+							// Tone map the linear light using the ACES curve
+							result.rgb = ACESFilm(result.rgb);
+							
+							// De-gamma to linear so SFM's native sRGB viewport curve doesn't double-brighten it
+							result.rgb = pow(result.rgb, 2.2f);
+						}
+						
+						return result;
 }

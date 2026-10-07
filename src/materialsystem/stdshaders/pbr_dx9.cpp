@@ -68,6 +68,7 @@ static ConVar cinepbr_depth_max("cinepbr_depth_max", "2000.0", FCVAR_NONE);
 
 static ConVar cinepbr_emissive("cinepbr_emissive", "0", FCVAR_NONE);
 static ConVar cinepbr_translucent("cinepbr_translucent", "0", FCVAR_NONE);
+static ConVar cinepbr_aces("cinepbr_aces", "0", FCVAR_NONE, "Enable ACES filmic preview mode for the SFM viewport"); 
 
 // --- GOLDEN RATIO ID GENERATOR ---
 struct Vector3ID { float x, y, z; };
@@ -816,7 +817,7 @@ SHADER_DRAW
 				(float)cinepbr_emissive.GetInt(),
 				(float)cinepbr_translucent.GetInt(),
 				bDiscardTranslucent ? 1.0f : 0.0f, // Tells HLSL if this specific material is translucent/additive
-				0.0f
+				(float)cinepbr_aces.GetInt()
 			};
 			pShaderAPI->SetPixelShaderConstant(79, cHoldoutControls);
 
