@@ -60,6 +60,7 @@ static ConVar pbr_microshadows_globalstrength("pbr_microshadows_globalstrength",
 
 static ConVar cinepbr_matid("cinepbr_matid", "0", FCVAR_NONE);
 static ConVar cinepbr_worldnormals("cinepbr_worldnormals", "0", FCVAR_NONE);
+static ConVar cinepbr_cameranormals("cinepbr_cameranormals", "0", FCVAR_NONE);
 static ConVar cinepbr_uv("cinepbr_uv", "0", FCVAR_NONE);
 static ConVar cinepbr_worldposition("cinepbr_worldposition", "0", FCVAR_NONE);
 static ConVar cinepbr_camdepth("cinepbr_camdepth", "0", FCVAR_NONE);
@@ -779,6 +780,9 @@ SHADER_DRAW
 			if (cinepbr_matid.GetBool()) {
 				overrideMode = bDiscardTranslucent ? 2.0f : 1.0f; // 1 = ID Pass, 2 = Discard
 			}
+			else if (cinepbr_cameranormals.GetBool()) {
+				overrideMode = bDiscardTranslucent ? 2.0f : 8.0f; // 8 = Camera Normals Pass
+			}
 			else if (cinepbr_worldnormals.GetBool()) {
 				overrideMode = bDiscardTranslucent ? 2.0f : 7.0f; // 7 = World Normals Pass
 			}
@@ -802,6 +806,19 @@ SHADER_DRAW
 				overrideMode
 			};
 			pShaderAPI->SetPixelShaderConstant(75, cAlphaTestRef);
+
+			// --- CAMERA NORMALS VIEW MATRIX ---
+			VMatrix viewMatrix;
+			pShaderAPI->GetMatrix(MATERIAL_VIEW, viewMatrix.Base());
+
+			// Extract the rotation rows and pass them to constant registers 80, 81, and 82
+			float cViewRot0[4] = { viewMatrix[0][0], viewMatrix[0][1], viewMatrix[0][2], 0.0f };
+			float cViewRot1[4] = { viewMatrix[1][0], viewMatrix[1][1], viewMatrix[1][2], 0.0f };
+			float cViewRot2[4] = { viewMatrix[2][0], viewMatrix[2][1], viewMatrix[2][2], 0.0f };
+
+			pShaderAPI->SetPixelShaderConstant(80, cViewRot0);
+			pShaderAPI->SetPixelShaderConstant(81, cViewRot1);
+			pShaderAPI->SetPixelShaderConstant(82, cViewRot2);
 
 			// Pass the max depth range (X) and the ShadowCaster toggle (Y) to HLSL via register c78
 			float cDepthControls[4] = {

@@ -123,6 +123,11 @@ const float4 cHoldoutControls : register(c79);
 #define g_f1TranslucentMode  (cHoldoutControls.y)
 #define g_f1IsTranslucent    (cHoldoutControls.z)
 #define g_f1AcesPreview      (cHoldoutControls.w)
+
+const float4 cViewRot0 : register(c80);
+const float4 cViewRot1 : register(c81);
+const float4 cViewRot2 : register(c82);
+
 //==================================================================================================
 // Samplers
 //==================================================================================================
@@ -306,9 +311,43 @@ float4 main(PS_INPUT i) : COLOR
 			return float4(0.0f, 0.0f, 0.0f, 0.0f);
 		}
 
-		// EARLY OUT: Override Modes bypass all normal mapping, lighting, and envmaps
-		if (g_f1OverrideMode > 0.5f && g_f1OverrideMode < 6.5f)
+		// EARLY OUT: All Override Modes bypass heavy lighting to save temp registers
+		if (g_f1OverrideMode > 0.5f)
 		{
+			// --- NORMAL PASSES (Isolated to prevent X4505 compiler crash) ---
+			if (g_f1OverrideMode > 6.5f) {
+				float3 f3FastNormalTS = tex2D(Sampler_NormalTexture, f2TexCoord).xyz * 2.0f - 1.0f;
+
+				#if WRINKLEMAP
+				float f1WrinkleWeight = i.ProjPosXYW_WrinkleWeight.w;
+				float f1WrinkleAmount = saturate(-f1WrinkleWeight);
+				float f1StretchAmount = saturate(f1WrinkleWeight);
+				float f1TextureAmount = 1.0f - f1WrinkleAmount - f1StretchAmount;
+
+				// Sample the wrinkle maps and unpack them[cite: 2]
+				float3 f3WrinkleNormalTS = tex2D(Sampler_NormalCompress, f2TexCoord).xyz * 2.0f - 1.0f;
+				float3 f3StretchNormalTS = tex2D(Sampler_NormalStretch, f2TexCoord).xyz * 2.0f - 1.0f;
+
+				// Blend them based on the flex weight[cite: 2]
+				f3FastNormalTS = f1TextureAmount * f3FastNormalTS + f1WrinkleAmount * f3WrinkleNormalTS + f1StretchAmount * f3StretchNormalTS;
+				#endif
+
+				f3FastNormalTS *= sign(i.NoCullDirection) * g_f3NormalMapFlips;
+				f3FastNormalTS = lerp(float3(0.0f, 0.0f, 1.0f), f3FastNormalTS, g_f1NormalMapFactor);
+				float3 f3FastNormalWS = normalize(mul(f3FastNormalTS, xmTBN));
+
+				if (g_f1OverrideMode > 7.5f) {
+					// Mode 8.0: Camera Normals
+					float3 f3CameraNormal;
+					f3CameraNormal.x = dot(cViewRot0.xyz, f3FastNormalWS);
+					f3CameraNormal.y = dot(cViewRot1.xyz, f3FastNormalWS);
+					f3CameraNormal.z = dot(cViewRot2.xyz, f3FastNormalWS);
+					return float4(f3CameraNormal * 0.5f + 0.5f, 1.0f);
+				}
+				// Mode 7.0: World Normals
+				return float4(f3FastNormalWS * 0.5f + 0.5f, 1.0f);
+			}
+
 			if (g_f1OverrideMode > 5.5f) {
 				// MODE 6.0: UV Pass
 				// Maps horizontal (U) to Red and vertical (V) to Green. Blue remains 0.
@@ -413,12 +452,6 @@ float4 main(PS_INPUT i) : COLOR
 			float fSSAODepth = i.LightmapTexCoord3.w;
 			return float4(f3NormalWS, fSSAODepth);
 		#endif
-
-			// --- WORLD NORMALS PASS ---
-			if (g_f1OverrideMode > 6.5f) {
-				// Remap the [-1.0 to 1.0] vector range into [0.0 to 1.0] RGB color space
-				return float4(f3NormalWS * 0.5f + 0.5f, 1.0f);
-			}
 
 			// --- ENVMAP METALNESS MASK ---
 			float4 f4MRAOTexture = tex2D(Sampler_MRAOTexture, f2TexCoord);
